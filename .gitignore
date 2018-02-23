@@ -1,0 +1,20 @@
+#   Ignore python precompiled code
+*.pyc
+
+#   Ignore pretrained model
+pretrained/
+
+#   Ignore mpii data
+mpii/images
+mpii/train/
+mpii/annotation.mat
+
+#   Ignore H36M data
+H36MSample
+
+#   Ignore tmp file
+tmp*/
+log/
+
+#   Ignore test data
+data/

@@ -5,7 +5,7 @@ MPII_ROOT = "mpii/"
 IMG_ROOT = MPII_ROOT + "images/"
 ANNO_ROOT = MPII_ROOT + "train/"
 TRAIN_LIST = MPII_ROOT + "train_list.txt"
-GT_ROOT = MPII_ROOT + "GT/"
+GT_ROOT = MPII_ROOT + "gt/"
 
 INPUT_SIZE = 368
 base_lr = 5e-5

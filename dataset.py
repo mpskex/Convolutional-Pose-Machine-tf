@@ -4,6 +4,8 @@
 import os
 import random
 import copy
+from multiprocessing import Pool
+
 import cv2
 import numpy as np
 import tables
@@ -11,12 +13,13 @@ import scipy.io as sio
 from scipy.stats import multivariate_normal
 
 class Dataset(object):
-    def __init__(self, train_list_path=None, img_root=None, anno_root=None, batch_size=None, in_size=368, joint_num=16, debug=False):
+    def __init__(self, train_list_path=None, img_root=None, anno_root=None, gt_root=None, batch_size=None, in_size=368, joint_num=16, debug=False, pre_gen=False):
         if train_list_path==None or img_root==None or anno_root==None or batch_size==None:
             raise ValueError
         self.train_list = self.__load_list(train_list_path)
         self.img_root = img_root
         self.anno_root = anno_root
+        self.gt_root = gt_root
         self.batch_size = batch_size
         self.margin_alpha=0.1
         self.in_size = in_size
@@ -26,12 +29,32 @@ class Dataset(object):
         self.batch_gt = None
         self.batch_num = 0
         self.joint_num = joint_num
+        self.pre_gen = pre_gen
+        '''
+        if pre_gen == True:
+            self.GenerateAllHeatMaps(parallel=True, procnum=4)
+        '''
+    
+    def __task(self, img_name):
+        np.save(self.gt_root + img_name + ".npy", self.__gen_hmap(img_name))
+        print "\t[*]\t",img_name, " saved!"
 
-    def GenerateOneBatch(self, pre_gen=False):
+    def GenerateAllHeatMaps(self, procnum=4):
+        p = Pool(procnum)
+        for name in self.train_list:
+            p.apply_async(self.__task, args=(name,))
+        print "[*]\tSub-Process Pool initiated...running..."
+        p.close()
+        p.join()
+        print "[*]\tdone"
+        
+
+    def GenerateOneBatch(self):
         assert self.idx_batches!=None or self.idx_batches!=[]
         current_batch = self.idx_batches[0]
         self.idx_batches.remove(current_batch)
-        return self.__struct_mini_batch(current_batch, pre_gen=pre_gen)
+        return self.__struct_mini_batch(current_batch)
+
 
     def shuffle(self):
         """
@@ -55,9 +78,90 @@ class Dataset(object):
                 print "batch:"
                 for m in n:
                     print '\t', m
-                print
 
-    def __struct_mini_batch(self, batch_idx, pre_gen=False):
+    def __gen_hmap(self, img_name):
+        """
+        Generate set of GT for one image
+        """
+        for anno in self.__load_anno(img_name):
+            assert anno.shape == (16, 2)
+            top_left = [img.shape[0], img.shape[1]]
+            bottom_right = [0, 0]
+            for n in range(anno.shape[0]):
+                for m in range(anno.shape[1]):
+                    if anno[n,m] > 0:
+                        if anno[n,m] > bottom_right[m]:
+                            bottom_right[m] = anno[n,m]
+                        if anno[n,m] < top_left[m]:
+                            top_left[m] = anno[n,m]
+            assert len(top_left) == len(bottom_right) == 2
+            
+            h_w = [0, 0]
+            for n in range(len(top_left)):
+                h_w[n] = int(bottom_right[n]+self.margin_alpha*img.shape[n]) - int(top_left[n]-self.margin_alpha*img.shape[n])
+            a = min([max(h_w), img.shape[0], img.shape[1]])
+
+            if self.debug:
+                #   print the crop information
+                print "top-left ", top_left, "\tbottom_right ", bottom_right
+                print "square of the selected annotations ", a, h_w, max(h_w)
+                print "img shape of ", img.shape
+
+            y1 = int((bottom_right[1]+top_left[1])/2-a/2)
+            y2 = int((bottom_right[1]+top_left[1])/2+a/2)
+            x1 = int((bottom_right[0]+top_left[0])/2-a/2)
+            x2 = int((bottom_right[0]+top_left[0])/2+a/2)
+
+            def __f(x):
+                if x<=0:
+                    x = 0
+                return x
+            x1 = __f(x1)
+            y1 = __f(y1)
+            x2 = __f(x2)
+            y2 = __f(y2)
+            
+            assert x1 >= 0 and y1 >= 0
+            #   crop
+            img = img[y1:y2, x1:x2, :]
+            #   add to batch_img
+
+            assert min(img.shape) > 0
+
+            for n in range(anno.shape[0]):
+                for m in range(anno.shape[1]):
+                    #assert anno[n,m] > (bottom_right[1]+top_left[1])/2-a/2 
+                    if self.debug:
+                        print "position after translation ", anno[n,m] - ([x1,y1])[m]
+                    anno[n,m] = anno[n,m] - ([x1,y1])[m]
+            GTmaps = np.zeros((self.joint_num+1, self.in_size/8, self.in_size/8), np.float)
+            anno_resz = self.__resize_points(anno, img.shape, [self.in_size/8, self.in_size/8])
+            #print anno_resz, "\nimage shape is ", img.shape
+            GTmap = []
+            #   currently choose the first annotation for this image
+            for n in range(len(anno_resz)):
+                s = int(np.sqrt(self.in_size/8) * self.in_size/8 * 10 / 4096) + 2
+                GTmap.append(self.__genGTmap(self.in_size/8, self.in_size/8,
+                    anno_resz[n][1], anno_resz[n][0],sigma_h=s, sigma_w=s))
+            GTmap.append(np.zeros((self.in_size/8,self.in_size/8),np.float))
+            GTmaps += np.array(GTmap)
+        if self.debug:
+            #   show the croped image
+            cv2.imshow("crop", img)
+            cv2.waitKey(0)
+            #   print anno
+            print "anno_origin ", anno
+            print "anno_resize ", anno_resz
+            #   test gtmap
+            _gshow = np.zeros(GTmaps.shape[1:], np.float)
+            for n in range(GTmaps.shape[0]):
+                _gshow += GTmaps[n]
+            print "generate hmap with size ", _gshow.shape
+            cv2.imshow("hmap", _gshow)
+            cv2.waitKey(0)
+        return GTmaps.transpose(1,2,0)
+
+    def __struct_mini_batch(self, batch_idx):
         """
         load image and generate GTmap
         Input: 
@@ -68,83 +172,10 @@ class Dataset(object):
         assert self.idx_batches != None
         for img_name in batch_idx:
             img = cv2.imread(self.img_root + img_name)
-            for anno in self.__load_anno(img_name):
-                assert anno.shape == (16, 2)
-                top_left = [img.shape[0], img.shape[1]]
-                bottom_right = [0, 0]
-                for n in range(anno.shape[0]):
-                    for m in range(anno.shape[1]):
-                        if anno[n,m] > 0:
-                            if anno[n,m] > bottom_right[m]:
-                                bottom_right[m] = anno[n,m]
-                            if anno[n,m] < top_left[m]:
-                                top_left[m] = anno[n,m]
-                assert len(top_left) == len(bottom_right) == 2
-                
-                h_w = [0, 0]
-                for n in range(len(top_left)):
-                    h_w[n] = int(bottom_right[n]+self.margin_alpha*img.shape[n]) - int(top_left[n]-self.margin_alpha*img.shape[n])
-                a = min([max(h_w), img.shape[0], img.shape[1]])
-
-                if self.debug:
-                    #   print the crop information
-                    print "top-left ", top_left, "\tbottom_right ", bottom_right
-                    print "square of the selected annotations ", a, h_w, max(h_w)
-                    print "img shape of ", img.shape
-
-                y1 = int((bottom_right[1]+top_left[1])/2-a/2)
-                y2 = int((bottom_right[1]+top_left[1])/2+a/2)
-                x1 = int((bottom_right[0]+top_left[0])/2-a/2)
-                x2 = int((bottom_right[0]+top_left[0])/2+a/2)
-
-                def __f(x):
-                    if x<=0:
-                        x = 0
-                    return x
-                x1 = __f(x1)
-                y1 = __f(y1)
-                x2 = __f(x2)
-                y2 = __f(y2)
-                
-                assert x1 >= 0 and y1 >= 0
-                #   crop
-                img = img[y1:y2, x1:x2, :]
-                #   add to batch_img
-
-                assert min(img.shape) > 0
-
-                for n in range(anno.shape[0]):
-                    for m in range(anno.shape[1]):
-                        #assert anno[n,m] > (bottom_right[1]+top_left[1])/2-a/2 
-                        if self.debug:
-                            print "position after translation ", anno[n,m] - ([x1,y1])[m]
-                        anno[n,m] = anno[n,m] - ([x1,y1])[m]
-                GTmaps = np.zeros((self.joint_num+1, self.in_size/8, self.in_size/8), np.float)
-                anno_resz = self.__resize_points(anno, img.shape, [self.in_size/8, self.in_size/8])
-                #print anno_resz, "\nimage shape is ", img.shape
-                GTmap = []
-                #   currently choose the first annotation for this image
-                for n in range(len(anno_resz)):
-                    s = int(np.sqrt(self.in_size/8) * self.in_size/8 * 10 / 4096) + 2
-                    GTmap.append(self.__genGTmap(self.in_size/8, self.in_size/8,
-                         anno_resz[n][1], anno_resz[n][0],sigma_h=s, sigma_w=s))
-                GTmap.append(np.zeros((self.in_size/8,self.in_size/8),np.float))
-                GTmaps += np.array(GTmap)
-            if self.debug:
-                #   show the croped image
-                cv2.imshow("crop", img)
-                cv2.waitKey(0)
-                #   print anno
-                print "anno_origin ", anno
-                print "anno_resize ", anno_resz
-                #   test gtmap
-                _gshow = np.zeros(GTmaps.shape[1:], np.float)
-                for n in range(GTmaps.shape[0]):
-                    _gshow += GTmaps[n]
-                print "generate hmap with size ", _gshow.shape
-                cv2.imshow("hmap", _gshow)
-                cv2.waitKey(0)
-            GTmaps = GTmaps.transpose(1,2,0)
+            if self.pre_gen == False:
+                GTmaps = self.__gen_hmap(img_name)
+            else:
+                GTmaps = np.load(self.gt_root + img_name + ".npy")
             img_resz = cv2.resize(img, (self.in_size, self.in_size))
             batch_img.append(np.array(img_resz))
             batch_gt.append(GTmaps)

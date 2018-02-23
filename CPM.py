@@ -13,7 +13,7 @@ class CPM():
     """
     CPM net
     """
-    def __init__(self, base_lr=0.0005, in_size=368, batch_size=16, epoch=200, dataset = None, img_root=None, log_dir=None):
+    def __init__(self, base_lr=0.0005, in_size=368, batch_size=16, epoch=200, dataset = None, log_dir=None):
         tf.reset_default_graph()
         self.sess = tf.Session()
         if log_dir:
@@ -220,3 +220,14 @@ class CPM():
 
     def net(self, image):
         return model.Net(image, self.joint_num)
+
+    def __TestAcc(self):
+        self.dataset.shuffle()
+        assert self.dataset.idx_batches!=None
+        for m in self.dataset.idx_batches:
+            _train_batch = self.dataset.GenerateOneBatch()
+            print "[*] small batch generated!"
+            for i in range(self.joint_num):
+                self.sess.run(tf.summary.scalar(i,self._accur(self.gtmap[i], self.gtmap[i], self.batch_size), 'accuracy'))
+
+

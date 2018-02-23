@@ -8,7 +8,7 @@ TRAIN_LIST = MPII_ROOT + "train_list.txt"
 GT_ROOT = MPII_ROOT + "gt/"
 
 INPUT_SIZE = 368
-base_lr = 5e-5
+base_lr = 2e-5
 epoch = 600
 batch_size = 16
 

@@ -7,6 +7,7 @@ pretrained/
 #   Ignore mpii data
 mpii/images
 mpii/train/
+mpii/gt/
 mpii/annotation.mat
 
 #   Ignore H36M data

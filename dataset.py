@@ -34,16 +34,17 @@ class Dataset(object):
         if pre_gen == True:
             self.GenerateAllHeatMaps(parallel=True, procnum=4)
         '''
-    
-    def __task(self, img_name):
-        np.save(self.gt_root + img_name + ".npy", self.__gen_hmap(img_name))
-        print "\t[*]\t",img_name, " saved!"
+
 
     def GenerateAllHeatMaps(self, procnum=4):
-        p = Pool(procnum)
+        p = Pool()
         for name in self.train_list:
-            p.apply_async(self.__task, args=(name,))
-        print "[*]\tSub-Process Pool initiated...running..."
+            img, gt = self.__gen_pair(name)
+            p.apply_async(np.save, 
+                args=(self.gt_root + name + ".crop.img.npy", img,))
+            p.apply_async(np.save, 
+                args=(self.gt_root + name + ".gt.npy", gt,))
+            print "[*]\tgenerated hmap of", name
         p.close()
         p.join()
         print "[*]\tdone"
@@ -79,10 +80,11 @@ class Dataset(object):
                 for m in n:
                     print '\t', m
 
-    def __gen_hmap(self, img_name):
+    def __gen_pair(self, img_name):
         """
         Generate set of GT for one image
         """
+        img = cv2.imread(self.img_root + img_name)
         for anno in self.__load_anno(img_name):
             assert anno.shape == (16, 2)
             top_left = [img.shape[0], img.shape[1]]
@@ -159,7 +161,7 @@ class Dataset(object):
             print "generate hmap with size ", _gshow.shape
             cv2.imshow("hmap", _gshow)
             cv2.waitKey(0)
-        return GTmaps.transpose(1,2,0)
+        return img, GTmaps.transpose(1,2,0)
 
     def __struct_mini_batch(self, batch_idx):
         """
@@ -171,11 +173,11 @@ class Dataset(object):
         batch_gt = []
         assert self.idx_batches != None
         for img_name in batch_idx:
-            img = cv2.imread(self.img_root + img_name)
             if self.pre_gen == False:
-                GTmaps = self.__gen_hmap(img_name)
+                img, GTmaps = self.__gen_pair(img_name)
             else:
-                GTmaps = np.load(self.gt_root + img_name + ".npy")
+                img = np.load(self.gt_root + img_name + ".crop.img.npy")
+                GTmaps = np.load(self.gt_root + img_name + ".gt.npy")
             img_resz = cv2.resize(img, (self.in_size, self.in_size))
             batch_img.append(np.array(img_resz))
             batch_gt.append(GTmaps)
@@ -292,6 +294,7 @@ class Dataset(object):
                     GTmap += genGTmap(46, 46, t_anno[n][1], t_anno[n][0])
                     cv2.circle(img, (int(anno[t][n][0]), int(anno[t][n][1])), 5, (0, 0, 255), 2)
                     print GTmap
+#   
             cv2.imshow('test', cv2.resize(img, (640,480)))
             cv2.imshow("GTmap", GTmap)
             cv2.waitKey(0)
@@ -331,7 +334,7 @@ class Dataset(object):
             return np.zeros((h, w))
 
 if __name__ == '__main__':
-    dataset = Dataset(train_list_path="mpii/train_list_test.txt", img_root="mpii/images/", anno_root="mpii/train/", batch_size=2, debug=True)
+    dataset = Dataset(train_list_path="mpii/train_list_test.txt", img_root="mpii/images/", gt_root="mpii/gt/", anno_root="mpii/train/", batch_size=2, debug=True, pre_gen=True)
     dataset.shuffle()
     print "generate batch with size of ", dataset.batch_num
     for n in range(dataset.batch_num):

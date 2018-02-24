@@ -30,9 +30,12 @@ class CPM():
         self.dataset = dataset
         #   step learning rate policy
         self.global_step = tf.Variable(0, trainable=False)
+        '''
         self.learning_rate = tf.train.exponential_decay(base_lr,
-            self.global_step, 2*len(self.dataset.train_list)/self.dataset.batch_size, 0.333,
+            self.global_step, len(self.dataset.train_list)/self.dataset.batch_size, 0.333,
             staircase=True)
+        '''
+        self.learning_rate = base_lr
         self.train_step = []
         self.losses = []
 

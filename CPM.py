@@ -80,36 +80,13 @@ class CPM():
             print "- LOSS & SCALAR_SUMMARY build finished!"
         with tf.name_scope('optimizer'):
             #self.optimizer = tf.train.AdamOptimizer(self.learning_rate)
-            '''
-            #   Global train
-            self.optimizer = tf.train.GradientDescentOptimizer(self.learning_rate)
-            self.train_step.append(self.optimizer.minimize(self.total_loss, global_step=self.global_step))
-            '''
-            #   Intermediate supervision
-            pFeature = tf.trainable_variables(scope='.*FeatureExtractor')
-            assert pFeature != []
-            for idx in range(self.stage):
-                if idx == 0:
-                    #   stage
-                    __para = tf.trainable_variables(scope='.*CPM_stage'+str(idx+1)) + pFeature
-                    assert __para != []
-                    optimizer = tf.train.GradientDescentOptimizer(self.learning_rate)
-                    grads_vars = optimizer.compute_gradients(loss, 
-                                        var_list=__para)
-                    self.train_step.append(optimizer.apply_gradients(grads_vars, 
-                                        global_step=self.global_step))
-                else:
-                    __para += tf.trainable_variables(scope='.*CPM_stage'+str(idx+1))
-                    assert __para != []
-                    # Passing global_step to minimize() will increment it at each step
-                    optimizer = tf.train.GradientDescentOptimizer(self.learning_rate)
-                    grads_vars = optimizer.compute_gradients(loss, 
-                                                var_list=__para)
-                    #   lr_mult = 4
-                    #grads_vars[0] = 4 * grads_vars[0]
-                    self.train_step.append(optimizer.apply_gradients(grads_vars, 
-                                        global_step=self.global_step))
-
+            #self.optimizer = tf.train.GradientDescentOptimizer(self.learning_rate)
+            with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
+                self.optimizer = tf.train.AdamOptimizer(learning_rate, epsilon=1e-8)
+                #   Global train
+                self.train_step.append(self.optimizer.minimize(self.total_loss, 
+                    global_step=self.global_step,
+                    colocate_gradients_with_ops=True))
         print "- OPTIMIZER build finished!"
 
     def BuildModel(self):
@@ -146,8 +123,8 @@ class CPM():
             assert self.dataset.idx_batches!=None
             for m in self.dataset.idx_batches:
                 _train_batch = self.dataset.GenerateOneBatch()
-                for step in self.train_step:
                     print "[*] small batch generated!"
+                for step in self.train_step:
                     self.sess.run(step, feed_dict={self.img: _train_batch[0],
                         self.gtmap:_train_batch[1]})
                 #   summaries

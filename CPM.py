@@ -88,7 +88,7 @@ class CPM():
             #   Intermediate supervision
             pFeature = tf.trainable_variables(scope='.*FeatureExtractor')
             assert pFeature != []
-            for idx in range(len(self.losses)):
+            for idx in range(self.stage):
                 if idx == 0:
                     #   stage
                     __para = tf.trainable_variables(scope='.*CPM_stage'+str(idx+1)) + pFeature
@@ -150,30 +150,31 @@ class CPM():
                     print "[*] small batch generated!"
                     self.sess.run(step, feed_dict={self.img: _train_batch[0],
                         self.gtmap:_train_batch[1]})
-                    if _iter_count % 20 == 0:
-                        #'''
-                        self.writer.add_summary(
-                            self.sess.run(self.summ_image,feed_dict={self.img: _train_batch[0], self.gtmap:_train_batch[1]}))
-                        #'''
-                        maps = self.sess.run(self.stagehmap,
-                            feed_dict={self.img: _train_batch[0],
-                                        self.gtmap:_train_batch[1]})
-                        for i in range(len(maps)):
-                            print "[!] saved heatmap with size of ", maps[i].shape
-                            np.save(self.log_dir+"stage"+str(i+1)+"map.npy",
-                                maps[i])
-                        gt = self.sess.run(self.gtmap,
-                            feed_dict={self.img: _train_batch[0],
-                                        self.gtmap:_train_batch[1]})
-                        print "[!] saved ground truth with size of ", gt.shape
-                        np.save(self.log_dir+"gt.npy", gt)
-                        del gt, maps
-                        #'''
-                    if _iter_count % 10 == 0:
-                        print "epoch ", _epoch_count, " iter ", _iter_count, self.sess.run(self.total_loss, feed_dict={self.img: _train_batch[0], self.gtmap:_train_batch[1]})
-                        self.writer.add_summary(
-                            self.sess.run(self.summ_scalar,feed_dict={self.img: _train_batch[0], self.gtmap:_train_batch[1]}),
-                            _iter_count)
+                #   summaries
+                if _iter_count % 20 == 0:
+                    #'''
+                    self.writer.add_summary(
+                        self.sess.run(self.summ_image,feed_dict={self.img: _train_batch[0], self.gtmap:_train_batch[1]}))
+                    #'''
+                    maps = self.sess.run(self.stagehmap,
+                        feed_dict={self.img: _train_batch[0],
+                                    self.gtmap:_train_batch[1]})
+                    for i in range(len(maps)):
+                        print "[!] saved heatmap with size of ", maps[i].shape
+                        np.save(self.log_dir+"stage"+str(i+1)+"map.npy",
+                            maps[i])
+                    gt = self.sess.run(self.gtmap,
+                        feed_dict={self.img: _train_batch[0],
+                                    self.gtmap:_train_batch[1]})
+                    print "[!] saved ground truth with size of ", gt.shape
+                    np.save(self.log_dir+"gt.npy", gt)
+                    del gt, maps
+                    #'''
+                if _iter_count % 10 == 0:
+                    print "epoch ", _epoch_count, " iter ", _iter_count, self.sess.run(self.total_loss, feed_dict={self.img: _train_batch[0], self.gtmap:_train_batch[1]})
+                    self.writer.add_summary(
+                        self.sess.run(self.summ_scalar,feed_dict={self.img: _train_batch[0], self.gtmap:_train_batch[1]}),
+                        _iter_count)
                 print "iter:", _iter_count
                 _iter_count += 1
                 self.writer.flush()
@@ -186,7 +187,7 @@ class CPM():
         Args:
             tensor	: 2D - Tensor (Height x Width : 64x64 )
         Returns:
-            arg		: Tuple of max position
+            arg		: Tuple of maxlen(self.losses) position
         """
         resh = tf.reshape(tensor, [-1])
         argmax = tf.argmax(resh, 0)
@@ -250,7 +251,7 @@ class CPM():
         print "- IMAGE_SUMMARY build finished!"
 
     def net(self, image):
-        return model.Net(image, self.joint_num)
+        return model.Net(image, self.joint_num, stage=self.stage)
 
     def __TestAcc(self):
         self.dataset.shuffle()

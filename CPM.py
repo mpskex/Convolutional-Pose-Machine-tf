@@ -13,7 +13,7 @@ class CPM():
     """
     CPM net
     """
-    def __init__(self, base_lr=0.0005, in_size=368, batch_size=16, epoch=200, dataset = None, log_dir=None):
+    def __init__(self, base_lr=0.0005, in_size=368, batch_size=16, epoch=200, dataset = None, log_dir=None, stage=6):
         tf.reset_default_graph()
         self.sess = tf.Session()
         if log_dir:
@@ -22,6 +22,7 @@ class CPM():
 
         self.dataset = dataset
         self.joint_num = 16
+        self.stage = stage
 
         self.base_lr = base_lr
         self.in_size = in_size
@@ -79,9 +80,36 @@ class CPM():
             print "- LOSS & SCALAR_SUMMARY build finished!"
         with tf.name_scope('optimizer'):
             #self.optimizer = tf.train.AdamOptimizer(self.learning_rate)
+            '''
+            #   Global train
             self.optimizer = tf.train.GradientDescentOptimizer(self.learning_rate)
-            assert self.total_loss!=0
             self.train_step.append(self.optimizer.minimize(self.total_loss, global_step=self.global_step))
+            '''
+            #   Intermediate supervision
+            pFeature = tf.trainable_variables(scope='.*FeatureExtractor')
+            assert pFeature != []
+            for idx in range(len(self.losses)):
+                if idx == 0:
+                    #   stage
+                    __para = tf.trainable_variables(scope='.*CPM_stage'+str(idx+1)) + pFeature
+                    assert __para != []
+                    optimizer = tf.train.GradientDescentOptimizer(self.learning_rate)
+                    grads_vars = optimizer.compute_gradients(loss, 
+                                        var_list=__para)
+                    self.train_step.append(optimizer.apply_gradients(grads_vars, 
+                                        global_step=self.global_step))
+                else:
+                    __para += tf.trainable_variables(scope='.*CPM_stage'+str(idx+1))
+                    assert __para != []
+                    # Passing global_step to minimize() will increment it at each step
+                    optimizer = tf.train.GradientDescentOptimizer(self.learning_rate)
+                    grads_vars = optimizer.compute_gradients(loss, 
+                                                var_list=__para)
+                    #   lr_mult = 4
+                    #grads_vars[0] = 4 * grads_vars[0]
+                    self.train_step.append(optimizer.apply_gradients(grads_vars, 
+                                        global_step=self.global_step))
+
         print "- OPTIMIZER build finished!"
 
     def BuildModel(self):
@@ -117,12 +145,11 @@ class CPM():
             print "[*] generate batch-set with size of ", self.dataset.batch_num
             assert self.dataset.idx_batches!=None
             for m in self.dataset.idx_batches:
+                _train_batch = self.dataset.GenerateOneBatch()
                 for step in self.train_step:
-                    _train_batch = self.dataset.GenerateOneBatch()
                     print "[*] small batch generated!"
                     self.sess.run(step, feed_dict={self.img: _train_batch[0],
                         self.gtmap:_train_batch[1]})
-                    print "iter:", _iter_count
                     if _iter_count % 20 == 0:
                         #'''
                         self.writer.add_summary(
@@ -147,8 +174,9 @@ class CPM():
                         self.writer.add_summary(
                             self.sess.run(self.summ_scalar,feed_dict={self.img: _train_batch[0], self.gtmap:_train_batch[1]}),
                             _iter_count)
-                    _iter_count += 1
-                    self.writer.flush()
+                print "iter:", _iter_count
+                _iter_count += 1
+                self.writer.flush()
             _epoch_count += 1
             #   save model every epoch
             self.saver.save(self.sess, os.path.join(self.log_dir, "model.ckpt"), n)

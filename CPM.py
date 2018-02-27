@@ -7,7 +7,8 @@ import tensorflow.contrib.layers as layers
 import tensorflow as tf
 
 import model
-from dataset import Dataset
+#from dataset import Dataset
+import datagen
 
 class CPM():
     """
@@ -31,7 +32,7 @@ class CPM():
         #   step learning rate policy
         self.global_step = tf.Variable(0, trainable=False)
         self.learning_rate = tf.train.exponential_decay(base_lr,
-            self.global_step, 2*len(self.dataset.train_list)/self.dataset.batch_size, 0.333,
+            self.global_step, 10000, 0.333,
             staircase=True)
         self.train_step = []
         self.losses = []
@@ -108,14 +109,29 @@ class CPM():
     def train(self):
         _epoch_count = 0
         _iter_count = 0
+
+        #   datagen from Hourglass
+        self.generator = self.dataset._aux_generator(self.batchSize, self.nStack, normalize = True, sample_set = 'train')
+        self.valid_gen = self.dataset._aux_generator(self.batchSize, self.nStack, normalize = True, sample_set = 'valid')
+        
         for n in range(self.epoch):
             #   do an index shuffle
+            '''
+            #   origin dataset
             self.dataset.shuffle()
+            '''
             print "[*] generate batch-set with size of ", self.dataset.batch_num
             assert self.dataset.idx_batches!=None
             for m in self.dataset.idx_batches:
                 for step in self.train_step:
+
+                    '''
+                    #   origin dataset
                     _train_batch = self.dataset.GenerateOneBatch()
+                    '''
+                    #   datagen from hourglass
+                    _train_batch = next(self.generator)[:3]
+
                     print "[*] small batch generated!"
                     self.sess.run(step, feed_dict={self.img: _train_batch[0],
                         self.gtmap:_train_batch[1]})

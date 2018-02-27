@@ -14,7 +14,7 @@ class CPM():
     """
     CPM net
     """
-    def __init__(self, base_lr=0.0005, in_size=368, batch_size=16, epoch=200, dataset = None, log_dir=None):
+    def __init__(self, base_lr=0.0005, in_size=368, batch_size=16, epoch=200, dataset = None, log_dir=None, stage=6):
         tf.reset_default_graph()
         self.sess = tf.Session()
         if log_dir:
@@ -23,6 +23,7 @@ class CPM():
 
         self.dataset = dataset
         self.joint_num = 16
+        self.stage = stage
 
         self.base_lr = base_lr
         self.in_size = in_size
@@ -31,9 +32,16 @@ class CPM():
         self.dataset = dataset
         #   step learning rate policy
         self.global_step = tf.Variable(0, trainable=False)
+        '''
         self.learning_rate = tf.train.exponential_decay(base_lr,
+<<<<<<< HEAD
             self.global_step, 10000, 0.333,
+=======
+            self.global_step, len(self.dataset.train_list)/self.dataset.batch_size, 0.333,
+>>>>>>> a391f477566c4489b0bc5d9f31dbf0cccc5c4e62
             staircase=True)
+        '''
+        self.learning_rate = base_lr
         self.train_step = []
         self.losses = []
 
@@ -77,9 +85,13 @@ class CPM():
             print "- LOSS & SCALAR_SUMMARY build finished!"
         with tf.name_scope('optimizer'):
             #self.optimizer = tf.train.AdamOptimizer(self.learning_rate)
-            self.optimizer = tf.train.GradientDescentOptimizer(self.learning_rate)
-            assert self.total_loss!=0
-            self.train_step.append(self.optimizer.minimize(self.total_loss, global_step=self.global_step))
+            #self.optimizer = tf.train.GradientDescentOptimizer(self.learning_rate)
+            with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
+                self.optimizer = tf.train.AdamOptimizer(learning_rate, epsilon=1e-8)
+                #   Global train
+                self.train_step.append(self.optimizer.minimize(self.total_loss, 
+                    global_step=self.global_step,
+                    colocate_gradients_with_ops=True))
         print "- OPTIMIZER build finished!"
 
     def BuildModel(self):
@@ -123,45 +135,44 @@ class CPM():
             print "[*] generate batch-set with size of ", self.dataset.batch_num
             assert self.dataset.idx_batches!=None
             for m in self.dataset.idx_batches:
+                '''
+                #   origin dataset
+                _train_batch = self.dataset.GenerateOneBatch()
+                '''
+                #   datagen from hourglass
+                _train_batch = next(self.generator)[:3]
+                print "[*] small batch generated!"
                 for step in self.train_step:
-
-                    '''
-                    #   origin dataset
-                    _train_batch = self.dataset.GenerateOneBatch()
-                    '''
-                    #   datagen from hourglass
-                    _train_batch = next(self.generator)[:3]
-
-                    print "[*] small batch generated!"
                     self.sess.run(step, feed_dict={self.img: _train_batch[0],
                         self.gtmap:_train_batch[1]})
-                    print "iter:", _iter_count
-                    if _iter_count % 20 == 0:
-                        #'''
-                        self.writer.add_summary(
-                            self.sess.run(self.summ_image,feed_dict={self.img: _train_batch[0], self.gtmap:_train_batch[1]}))
-                        #'''
-                        maps = self.sess.run(self.stagehmap,
-                            feed_dict={self.img: _train_batch[0],
-                                        self.gtmap:_train_batch[1]})
-                        for i in range(len(maps)):
-                            print "[!] saved heatmap with size of ", maps[i].shape
-                            np.save(self.log_dir+"stage"+str(i+1)+"map.npy",
-                                maps[i])
-                        gt = self.sess.run(self.gtmap,
-                            feed_dict={self.img: _train_batch[0],
-                                        self.gtmap:_train_batch[1]})
-                        print "[!] saved ground truth with size of ", gt.shape
-                        np.save(self.log_dir+"gt.npy", gt)
-                        del gt, maps
-                        #'''
-                    if _iter_count % 10 == 0:
-                        print "epoch ", _epoch_count, " iter ", _iter_count, self.sess.run(self.total_loss, feed_dict={self.img: _train_batch[0], self.gtmap:_train_batch[1]})
-                        self.writer.add_summary(
-                            self.sess.run(self.summ_scalar,feed_dict={self.img: _train_batch[0], self.gtmap:_train_batch[1]}),
-                            _iter_count)
-                    _iter_count += 1
-                    self.writer.flush()
+                #   summaries
+                if _iter_count % 20 == 0:
+                    #'''
+                    self.writer.add_summary(
+                        self.sess.run(self.summ_image,feed_dict={self.img: _train_batch[0], self.gtmap:_train_batch[1]}))
+                    #'''
+                    maps = self.sess.run(self.stagehmap,
+                        feed_dict={self.img: _train_batch[0],
+                                    self.gtmap:_train_batch[1]})
+                    for i in range(len(maps)):
+                        print "[!] saved heatmap with size of ", maps[i].shape
+                        np.save(self.log_dir+"stage"+str(i+1)+"map.npy",
+                            maps[i])
+                    gt = self.sess.run(self.gtmap,
+                        feed_dict={self.img: _train_batch[0],
+                                    self.gtmap:_train_batch[1]})
+                    print "[!] saved ground truth with size of ", gt.shape
+                    np.save(self.log_dir+"gt.npy", gt)
+                    del gt, maps
+                    #'''
+                if _iter_count % 10 == 0:
+                    print "epoch ", _epoch_count, " iter ", _iter_count, self.sess.run(self.total_loss, feed_dict={self.img: _train_batch[0], self.gtmap:_train_batch[1]})
+                    self.writer.add_summary(
+                        self.sess.run(self.summ_scalar,feed_dict={self.img: _train_batch[0], self.gtmap:_train_batch[1]}),
+                        _iter_count)
+                print "iter:", _iter_count
+                _iter_count += 1
+                self.writer.flush()
             _epoch_count += 1
             #   save model every epoch
             self.saver.save(self.sess, os.path.join(self.log_dir, "model.ckpt"), n)
@@ -171,7 +182,7 @@ class CPM():
         Args:
             tensor	: 2D - Tensor (Height x Width : 64x64 )
         Returns:
-            arg		: Tuple of max position
+            arg		: Tuple of maxlen(self.losses) position
         """
         resh = tf.reshape(tensor, [-1])
         argmax = tf.argmax(resh, 0)
@@ -235,7 +246,7 @@ class CPM():
         print "- IMAGE_SUMMARY build finished!"
 
     def net(self, image):
-        return model.Net(image, self.joint_num)
+        return model.Net(image, self.joint_num, stage=self.stage)
 
     def __TestAcc(self):
         self.dataset.shuffle()

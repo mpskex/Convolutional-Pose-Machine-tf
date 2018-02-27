@@ -1,7 +1,7 @@
 import tensorflow.contrib.layers as layers
 import tensorflow as tf
 
-def Net(image, joint_num):
+def Net(image, joint_num, stage=6):
     with tf.variable_scope('PoseNet'):
         with tf.variable_scope('FeatureExtractor'):
             #   Assuming the input of the image is 368*368
@@ -229,4 +229,4 @@ def Net(image, joint_num):
                                 Mconv7_stage4_bn,
                                 Mconv7_stage5_bn,
                                 Mconv7_stage6_bn]
-    return last_conv_each_stage
+    return last_conv_each_stage[:stage]

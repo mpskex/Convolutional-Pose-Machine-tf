@@ -32,16 +32,10 @@ class CPM():
         self.dataset = dataset
         #   step learning rate policy
         self.global_step = tf.Variable(0, trainable=False)
-        '''
         self.learning_rate = tf.train.exponential_decay(base_lr,
-<<<<<<< HEAD
-            self.global_step, 10000, 0.333,
-=======
-            self.global_step, len(self.dataset.train_list)/self.dataset.batch_size, 0.333,
->>>>>>> a391f477566c4489b0bc5d9f31dbf0cccc5c4e62
+            self.global_step, 2000, 0.333,
             staircase=True)
-        '''
-        self.learning_rate = base_lr
+        #self.learning_rate = base_lr
         self.train_step = []
         self.losses = []
 
@@ -84,10 +78,10 @@ class CPM():
             self.summ_scalar_list.append(tf.summary.scalar("total loss", self.total_loss))
             print "- LOSS & SCALAR_SUMMARY build finished!"
         with tf.name_scope('optimizer'):
-            #self.optimizer = tf.train.AdamOptimizer(self.learning_rate)
-            #self.optimizer = tf.train.GradientDescentOptimizer(self.learning_rate)
             with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
-                self.optimizer = tf.train.AdamOptimizer(learning_rate, epsilon=1e-8)
+                self.optimizer = tf.train.AdamOptimizer(self.learning_rate, epsilon=1e-8)
+                #self.optimizer = tf.train.AdamOptimizer(self.learning_rate)
+                #self.optimizer = tf.train.GradientDescentOptimizer(self.learning_rate)
                 #   Global train
                 self.train_step.append(self.optimizer.minimize(self.total_loss, 
                     global_step=self.global_step,
@@ -121,26 +115,28 @@ class CPM():
     def train(self):
         _epoch_count = 0
         _iter_count = 0
-
+        '''
         #   datagen from Hourglass
         self.generator = self.dataset._aux_generator(self.batchSize, self.nStack, normalize = True, sample_set = 'train')
         self.valid_gen = self.dataset._aux_generator(self.batchSize, self.nStack, normalize = True, sample_set = 'valid')
+        '''
         
         for n in range(self.epoch):
             #   do an index shuffle
-            '''
+            #'''
             #   origin dataset
             self.dataset.shuffle()
-            '''
             print "[*] generate batch-set with size of ", self.dataset.batch_num
+            #'''
             assert self.dataset.idx_batches!=None
             for m in self.dataset.idx_batches:
-                '''
+                #'''
                 #   origin dataset
                 _train_batch = self.dataset.GenerateOneBatch()
-                '''
-                #   datagen from hourglass
+                #'''
+                '''#   datagen from hourglass
                 _train_batch = next(self.generator)[:3]
+                #'''
                 print "[*] small batch generated!"
                 for step in self.train_step:
                     self.sess.run(step, feed_dict={self.img: _train_batch[0],

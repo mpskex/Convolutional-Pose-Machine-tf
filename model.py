@@ -1,11 +1,11 @@
 import tensorflow.contrib.layers as layers
 import tensorflow as tf
 
-def Net(image, joint_num, stage=6):
+def Net(image, joint_num, stage=6, dropout_rate=0.5):
     with tf.variable_scope('PoseNet'):
         with tf.variable_scope('FeatureExtractor'):
             #   Assuming the input of the image is 368*368
-            image_bn = layers.batch_norm(image)
+            image_bn = layers.dropout(image, keep_prob=dropout_rate)
             #   out : 368 * 368 * 64
             conv1_1 = layers.conv2d(
                 image_bn, 64, 3, 1,  activation_fn=None,  weights_initializer=layers.xavier_initializer(),  scope='conv1_1')

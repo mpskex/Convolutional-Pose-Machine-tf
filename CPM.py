@@ -54,9 +54,9 @@ class CPM():
         self.img = tf.placeholder(tf.float32, 
             shape=[None, self.in_size, self.in_size, 3], name="img_in")
         #   input center map : channel 1 (downscale by 8)
-        self.weight = tf.placeholder(tf.float32,
-            shape=[None, self.in_size/8, self.in_size, self.in_size])
-        
+        self.weight = tf.placeholder(tf.float32 ,
+            shape=[None, self.joint_num+1])
+
         #   Train input
         #   input ground truth : channel 1 (downscale by 8)
         self.gtmap = tf.placeholder(tf.float32, 
@@ -69,9 +69,9 @@ class CPM():
             for idx in range(len(self.stagehmap)):
                 __para = []
                 assert self.stagehmap!=[]
-                loss = tf.multiply(self.weight, 
+                loss = tf.multiply(self.weight[idx], 
                     tf.reduce_sum(tf.nn.l2_loss(
-                        self.stagehmap[idx] - self.gtmap, name='loss_stage_%d' % idx))))
+                        self.stagehmap[idx] - self.gtmap, name='loss_stage_%d' % idx)))
                 self.losses.append(loss)
                 self.summ_scalar_list.append(tf.summary.scalar("loss in stage"+str(idx+1),
                      loss))
@@ -132,12 +132,13 @@ class CPM():
                 '''
                 #'''
 				#   datagen from hourglass
-                _train_batch = next(self.generator)[:3]
+                _train_batch = next(self.generator)
                 #'''
                 print "[*] small batch generated!"
                 for step in self.train_step:
                     self.sess.run(step, feed_dict={self.img: _train_batch[0],
-                        self.gtmap:_train_batch[1]})
+                        self.gtmap:_train_batch[1],
+                        self.weight:_train_batch[2]})
                 #   summaries
                 if _iter_count % 20 == 0:
                     #'''
@@ -159,12 +160,15 @@ class CPM():
                     print "[!] saved ground truth with size of ", gt.shape
                     np.save(self.log_dir+"gt.npy", gt)
                     del gt, maps
-                    #'''
                 if _iter_count % 10 == 0:
                     print "epoch ", _epoch_count, " iter ", _iter_count, self.sess.run(self.total_loss, feed_dict={self.img: _train_batch[0], self.gtmap:_train_batch[1], self.weight:_train_batch[2]})
+                '''
                     self.writer.add_summary(
-                        self.sess.run(self.summ_scalar,feed_dict={self.img: _train_batch[0], self.gtmap:_train_batch[1], self.weight:_train_batch[2]}),
+                        self.sess.run(self.summ_scalar,feed_dict={self.img: _train_batch[0], 
+                            self.gtmap:_train_batch[1], 
+                            self.weight:_train_batch[2]}),
                         _iter_count)
+                '''
                 print "iter:", _iter_count
                 _iter_count += 1
                 self.writer.flush()

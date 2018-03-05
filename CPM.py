@@ -117,7 +117,7 @@ class CPM():
     def train(self):
         _epoch_count = 0
         _iter_count = 0
-        
+    
         #   datagen from Hourglass
         self.generator = self.dataset._aux_generator(self.batch_size, normalize = True, sample_set = 'train')
         self.valid_gen = self.dataset._aux_generator(self.batch_size, normalize = True, sample_set = 'valid')
@@ -126,6 +126,14 @@ class CPM():
             for m in range(self.epoch_size):
                 #   datagen from hourglass
                 _train_batch = next(self.generator)
+                '''
+                #   origin dataset
+                _train_batch = self.dataset.GenerateOneBatch()
+                '''
+                #'''
+				#   datagen from hourglass
+                _train_batch = next(self.generator)[:3]
+                #'''
                 print "[*] small batch generated!"
                 for step in self.train_step:
                     self.sess.run(step, feed_dict={self.img: _train_batch[0],

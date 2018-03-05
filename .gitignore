@@ -19,3 +19,7 @@ log/
 
 #   Ignore test data
 data/
+*.npy
+
+#	Ignore backup file
+*.bak.tar

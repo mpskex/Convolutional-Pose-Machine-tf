@@ -14,7 +14,7 @@ class CPM():
     """
     CPM net
     """
-    def __init__(self, base_lr=0.0005, in_size=368, batch_size=16, epoch=200, dataset = None, log_dir=None, stage=6):
+    def __init__(self, base_lr=0.0005, in_size=368, batch_size=16, epoch=200, dataset = None, log_dir=None, stage=6, epoch_size=1000):
         tf.reset_default_graph()
         self.sess = tf.Session()
         if log_dir:
@@ -29,19 +29,14 @@ class CPM():
         self.in_size = in_size
         self.batch_size = batch_size
         self.epoch = epoch
+        self.epoch_size = epoch_size
         self.dataset = dataset
         #   step learning rate policy
         self.global_step = tf.Variable(0, trainable=False)
-        '''
         self.learning_rate = tf.train.exponential_decay(base_lr,
-<<<<<<< HEAD
-            self.global_step, 10000, 0.333,
-=======
-            self.global_step, len(self.dataset.train_list)/self.dataset.batch_size, 0.333,
->>>>>>> a391f477566c4489b0bc5d9f31dbf0cccc5c4e62
+            self.global_step, 2000, 0.333,
             staircase=True)
-        '''
-        self.learning_rate = base_lr
+        #self.learning_rate = base_lr
         self.train_step = []
         self.losses = []
 
@@ -59,8 +54,8 @@ class CPM():
         self.img = tf.placeholder(tf.float32, 
             shape=[None, self.in_size, self.in_size, 3], name="img_in")
         #   input center map : channel 1 (downscale by 8)
-        self.centermap = tf.placeholder(tf.float32,
-            shape=[None, self.in_size/8, self.in_size/8, 1])
+        self.weight = tf.placeholder(tf.float32,
+            shape=[None, self.in_size/8, self.in_size, self.in_size])
         
         #   Train input
         #   input ground truth : channel 1 (downscale by 8)
@@ -70,26 +65,27 @@ class CPM():
     
     def __build_train_op(self):
         #   Optimizer
-        self.total_loss = 0
         with tf.name_scope('loss'):
             for idx in range(len(self.stagehmap)):
                 __para = []
                 assert self.stagehmap!=[]
-                loss = tf.reduce_sum(tf.nn.l2_loss(
-                    self.stagehmap[idx] - self.gtmap, name='loss_stage_%d' % idx))
+                loss = tf.multiply(self.weight, 
+                    tf.reduce_sum(tf.nn.l2_loss(
+                        self.stagehmap[idx] - self.gtmap, name='loss_stage_%d' % idx))))
                 self.losses.append(loss)
-                self.total_loss += loss
                 self.summ_scalar_list.append(tf.summary.scalar("loss in stage"+str(idx+1),
                      loss))
+            self.total_loss = tf.reduce_mean(self.losses)
             self.summ_scalar_list.append(tf.summary.scalar("total loss", self.total_loss))
+            self.summ_scalar_list.append(tf.summary.scalar("lr", self.learning_rate))
             print "- LOSS & SCALAR_SUMMARY build finished!"
         with tf.name_scope('optimizer'):
-            #self.optimizer = tf.train.AdamOptimizer(self.learning_rate)
-            #self.optimizer = tf.train.GradientDescentOptimizer(self.learning_rate)
             with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
-                self.optimizer = tf.train.AdamOptimizer(learning_rate, epsilon=1e-8)
+                #self.optimizer = tf.train.AdamOptimizer(self.learning_rate, epsilon=1e-8)
+                #self.optimizer = tf.train.AdamOptimizer(self.learning_rate)
+                self.optimizer = tf.train.GradientDescentOptimizer(self.learning_rate)
                 #   Global train
-                self.train_step.append(self.optimizer.minimize(self.total_loss, 
+                self.train_step.append(self.optimizer.minimize(self.total_loss/self.batch_size, 
                     global_step=self.global_step,
                     colocate_gradients_with_ops=True))
         print "- OPTIMIZER build finished!"
@@ -121,26 +117,15 @@ class CPM():
     def train(self):
         _epoch_count = 0
         _iter_count = 0
-
-        #   datagen from Hourglass
-        self.generator = self.dataset._aux_generator(self.batchSize, self.nStack, normalize = True, sample_set = 'train')
-        self.valid_gen = self.dataset._aux_generator(self.batchSize, self.nStack, normalize = True, sample_set = 'valid')
         
+        #   datagen from Hourglass
+        self.generator = self.dataset._aux_generator(self.batch_size, normalize = True, sample_set = 'train')
+        self.valid_gen = self.dataset._aux_generator(self.batch_size, normalize = True, sample_set = 'valid')
+
         for n in range(self.epoch):
-            #   do an index shuffle
-            '''
-            #   origin dataset
-            self.dataset.shuffle()
-            '''
-            print "[*] generate batch-set with size of ", self.dataset.batch_num
-            assert self.dataset.idx_batches!=None
-            for m in self.dataset.idx_batches:
-                '''
-                #   origin dataset
-                _train_batch = self.dataset.GenerateOneBatch()
-                '''
+            for m in range(self.epoch_size):
                 #   datagen from hourglass
-                _train_batch = next(self.generator)[:3]
+                _train_batch = next(self.generator)
                 print "[*] small batch generated!"
                 for step in self.train_step:
                     self.sess.run(step, feed_dict={self.img: _train_batch[0],
@@ -149,26 +134,28 @@ class CPM():
                 if _iter_count % 20 == 0:
                     #'''
                     self.writer.add_summary(
-                        self.sess.run(self.summ_image,feed_dict={self.img: _train_batch[0], self.gtmap:_train_batch[1]}))
+                        self.sess.run(self.summ_image,feed_dict={self.img: _train_batch[0], self.gtmap:_train_batch[1], self.weight:_train_batch[2]}))
                     #'''
                     maps = self.sess.run(self.stagehmap,
                         feed_dict={self.img: _train_batch[0],
-                                    self.gtmap:_train_batch[1]})
+                                    self.gtmap:_train_batch[1],
+                                    self.weight:_train_batch[2]})
                     for i in range(len(maps)):
                         print "[!] saved heatmap with size of ", maps[i].shape
                         np.save(self.log_dir+"stage"+str(i+1)+"map.npy",
                             maps[i])
                     gt = self.sess.run(self.gtmap,
                         feed_dict={self.img: _train_batch[0],
-                                    self.gtmap:_train_batch[1]})
+                                    self.gtmap:_train_batch[1],
+                                    self.weight:_train_batch[2]})
                     print "[!] saved ground truth with size of ", gt.shape
                     np.save(self.log_dir+"gt.npy", gt)
                     del gt, maps
                     #'''
                 if _iter_count % 10 == 0:
-                    print "epoch ", _epoch_count, " iter ", _iter_count, self.sess.run(self.total_loss, feed_dict={self.img: _train_batch[0], self.gtmap:_train_batch[1]})
+                    print "epoch ", _epoch_count, " iter ", _iter_count, self.sess.run(self.total_loss, feed_dict={self.img: _train_batch[0], self.gtmap:_train_batch[1], self.weight:_train_batch[2]})
                     self.writer.add_summary(
-                        self.sess.run(self.summ_scalar,feed_dict={self.img: _train_batch[0], self.gtmap:_train_batch[1]}),
+                        self.sess.run(self.summ_scalar,feed_dict={self.img: _train_batch[0], self.gtmap:_train_batch[1], self.weight:_train_batch[2]}),
                         _iter_count)
                 print "iter:", _iter_count
                 _iter_count += 1

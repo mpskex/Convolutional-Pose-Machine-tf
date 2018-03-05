@@ -238,10 +238,10 @@ class DataGenerator():
 			maxlenght		: Lenght of the Bounding Box
 		"""
 		num_joints = joints.shape[0]
-		hm = np.zeros((height, width, num_joints), dtype = np.float32)
+		hm = np.zeros((height, width, num_joints+1), dtype = np.float32)
 		for i in range(num_joints):
 			if not(np.array_equal(joints[i], [-1,-1])) and weight[i] == 1:
-				s = int(np.sqrt(maxlenght) * maxlenght * 10 / 4096) + 2
+				s = int(np.sqrt(maxlenght) * maxlenght * 10 / 4096) + 6
 				hm[:,:,i] = self._makeGaussian(height, width, sigma= s, center= (joints[i,0], joints[i,1]))
 			else:
 				hm[:,:,i] = np.zeros((height,width))
@@ -355,7 +355,7 @@ class DataGenerator():
 			if debug:
 				t = time.time()
 			train_img = np.zeros((batch_size, self.in_size,self.in_size,3), dtype = np.float32)
-			train_gtmap = np.zeros((batch_size, self.in_size/8, self.in_size/8, len(self.joints_list)), np.float32)
+			train_gtmap = np.zeros((batch_size, self.in_size/8, self.in_size/8, len(self.joints_list)+1), np.float32)
 			files = self._give_batch_name(batch_size= batch_size, set = set)
 			for i, name in enumerate(files):
 				if name[:-1] in self.images:
@@ -370,13 +370,13 @@ class DataGenerator():
 						if debug:
 							print(cbox)
 							print('maxl :', max(cbox[2], cbox[3]))
-						new_j = self._relative_joints(cbox,padd, joints, to_size=64)
-						hm = self._generate_hm(64, 64, new_j, 64, weight)
+						new_j = self._relative_joints(cbox,padd, joints, to_size=self.in_size/8)
+						hm = self._generate_hm(self.in_size/8, self.in_size/8, new_j, self.in_size/8, weight)
 						img = self._crop_img(img, padd, cbox)
 						img = img.astype(np.uint8)
 						# On 16 image per batch
 						# Avg Time -OpenCV : 1.0 s -skimage: 1.25 s -scipy.misc.imresize: 1.05s
-						img = scm.imresize(img, (256,256))
+						img = scm.imresize(img, (self.in_size,self.in_size))
 						# Less efficient that OpenCV resize method
 						#img = transform.resize(img, (256,256), preserve_range = True, mode = 'constant')
 						# May Cause trouble, bug in OpenCV imgwrap.cpp:3229
@@ -403,37 +403,34 @@ class DataGenerator():
 			See Args section in self._generator
 		"""
 		while True:
-			train_img = np.zeros((batch_size, 256,256,3), dtype = np.float32)
-			train_gtmap = np.zeros((batch_size, 64, 64, len(self.joints_list)), np.float32)
+			train_img = np.zeros((batch_size, self.in_size, self.in_size,3), dtype = np.float32)
+			train_gtmap = np.zeros((batch_size, self.in_size/8, self.in_size/8, len(self.joints_list)+1), np.float32)
 			train_weights = np.zeros((batch_size, len(self.joints_list)), np.float32)
 			i = 0
 			while i < batch_size:
-				try:
-					if sample_set == 'train':
-						name = random.choice(self.train_set)
-					elif sample_set == 'valid':
-						name = random.choice(self.valid_set)
-					joints = self.data_dict[name]['joints']
-					box = self.data_dict[name]['box']
-					weight = np.asarray(self.data_dict[name]['weights'])
-					train_weights[i] = weight 
-					img = self.open_img(name)
-					padd, cbox = self._crop_data(img.shape[0], img.shape[1], box, joints, boxp = 0.2)
-					new_j = self._relative_joints(cbox,padd, joints, to_size=64)
-					hm = self._generate_hm(64, 64, new_j, 64, weight)
-					img = self._crop_img(img, padd, cbox)
-					img = img.astype(np.uint8)
-					img = scm.imresize(img, (256,256))
-					img, hm = self._augment(img, hm)
-					hm = np.expand_dims(hm, axis = 0)
-					if normalize:
-						train_img[i] = img.astype(np.float32) / 255
-					else :
-						train_img[i] = img.astype(np.float32)
-					train_gtmap[i] = hm
-					i = i + 1
-				except :
-					print('error file: ', name)
+				if sample_set == 'train':
+					name = random.choice(self.train_set)
+				elif sample_set == 'valid':
+					name = random.choice(self.valid_set)
+				joints = self.data_dict[name]['joints']
+				box = self.data_dict[name]['box']
+				weight = np.asarray(self.data_dict[name]['weights'])
+				train_weights[i] = weight 
+				img = self.open_img(name)
+				padd, cbox = self._crop_data(img.shape[0], img.shape[1], box, joints, boxp = 0.2)
+				new_j = self._relative_joints(cbox,padd, joints, to_size=64)
+				hm = self._generate_hm(self.in_size/8, self.in_size/8, new_j, self.in_size/8, weight)
+				img = self._crop_img(img, padd, cbox)
+				img = img.astype(np.uint8)
+				img = scm.imresize(img, (self.in_size,self.in_size))
+				img, hm = self._augment(img, hm)
+				hm = np.expand_dims(hm, axis = 0)
+				if normalize:
+					train_img[i] = img.astype(np.float32) / 255
+				else :
+					train_img[i] = img.astype(np.float32)
+				train_gtmap[i] = hm
+				i = i + 1
 			yield train_img, train_gtmap, train_weights
 					
 	def generator(self, batchSize = 16, norm = True, sample = 'train'):
@@ -553,14 +550,14 @@ class DataGenerator():
 				w = self.data_dict[sample]['weights']
 				img = self.open_img(sample)
 				padd, cbox = self._crop_data(img.shape[0], img.shape[1], box, joints, boxp = 0.2)
-				new_j = self._relative_joints(cbox,padd, joints, to_size=256)
+				new_j = self._relative_joints(cbox,padd, joints, to_size=self.in_size)
 				joint_full = np.copy(joints)
 				max_l = max(cbox[2], cbox[3])
 				joint_full = joint_full + [padd[1][0], padd[0][0]]
 				joint_full = joint_full - [cbox[0] - max_l //2,cbox[1] - max_l //2]
 				img = self._crop_img(img, padd, cbox)
 				img = img.astype(np.uint8)
-				img = scm.imresize(img, (256,256))
+				img = scm.imresize(img, (self.in_size,self.in_size))
 				return img, new_j, w, joint_full, max_l
 			except:
 				return False

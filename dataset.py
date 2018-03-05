@@ -178,7 +178,7 @@ class Dataset(object):
             else:
                 img = np.load(self.gt_root + img_name + ".crop.img.npy")
                 GTmaps = np.load(self.gt_root + img_name + ".gt.npy")
-            img_resz = cv2.resize(img, (self.in_size, self.in_size))
+            img_resz = cv2.resize(img, (self.in_size, self.in_size)) / 255.0
             batch_img.append(np.array(img_resz))
             batch_gt.append(GTmaps)
             if self.debug:

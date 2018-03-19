@@ -2,7 +2,7 @@
 """
     Convulotional Pose Machine
         For Single Person Pose Estimation
-    Human Pose Estimation Project in iLab
+    Human Pose Estimation Project in Lab
     Author: Liu Fangrui aka mpsk
         Beijing University of Technology
             College of Computer Science & Technology
@@ -10,43 +10,85 @@
         !!DO NOT USE IT AS DEPLOYMENT!!
 """
 import os
-import urllib
 import numpy as np
-import scipy.io as sio
-import tensorflow.contrib.layers as layers
 import tensorflow as tf
-
-import model
-import datagen
 
 class CPM():
     """
     CPM net
     """
-    def __init__(self, base_lr=0.0005, in_size=368, batch_size=16, epoch=200, dataset = None, log_dir=None, stage=6, epoch_size=1000, w_summary = True):
+    def __init__(self, base_lr=0.0005, in_size=368, batch_size=16, epoch=200, dataset = None, log_dir=None, stage=6,
+                 epoch_size=1000, w_summary=True, training=True, joints=None, cpu_only=False, pretrained_model='vgg19.npy',
+                 load_pretrained=False):
+        """ CPM Net implemented with Tensorflow
+
+        :param base_lr:             starter learning rate
+        :param in_size:             input image size
+        :param batch_size:          size of each batch
+        :param epoch:               num of epoch to train
+        :param dataset:             *datagen* class to gen & feed data
+        :param log_dir:             log directory
+        :param stage:               num of stage in cpm model
+        :param epoch_size:          size of each epoch
+        :param w_summary:           bool to determine if do weight summary
+        :param training:            bool to determine if the model trains
+        :param joints:              list to define names of joints
+        :param cpu_only:            CPU mode or GPU mode
+        :param pretrained_model:    Path to pre-trained model
+        :param load_pretrained:     bool to determine if the net loads all arg
+
+        ATTENTION HERE:
+        *   if load_pretrained is False
+            then the model only loads VGG part of arguments
+            if true, then it loads all weights & bias
+
+        *   if log_dir is None, then the model won't output any save files
+            but here we defines a default log ditectory, so don't worry
+
+        """
         tf.reset_default_graph()
         self.sess = tf.Session()
-        if log_dir:
+
+        #   model log dir control
+        if log_dir is not None:
             self.writer = tf.summary.FileWriter(log_dir)
-        self.log_dir = log_dir
+            self.log_dir = log_dir
+        else:
+            self.log_dir = 'log/'
+
+        #   model device control
+        self.cpu = '/cpu:0'
+        if cpu_only:
+            self.gpu = self.cpu
+        else:
+            self.gpu = '/gpu:0'
 
         self.dataset = dataset
-        self.joint_num = 16
-        self.dropout_rate = 0.2
-        self.stage = stage
 
+        #   Annotations Associated
+        if joints is not None:
+            self.joints = joints
+        else:
+            self.joints = ['r_anckle', 'r_knee', 'r_hip', 'l_hip', 'l_knee', 'l_anckle', 'pelvis', 'thorax', 'neck', 'head', 'r_wrist', 'r_elbow', 'r_shoulder', 'l_sho    ulder', 'l_elbow', 'l_wrist']
+        self.joint_num = len(self.joints)
+
+        #   Net Args
+        self.stage = stage
+        self.training = training
         self.base_lr = base_lr
         self.in_size = in_size
         self.batch_size = batch_size
         self.epoch = epoch
         self.epoch_size = epoch_size
         self.dataset = dataset
+
         #   step learning rate policy
         self.global_step = tf.Variable(0, trainable=False)
         self.learning_rate = tf.train.exponential_decay(base_lr,
-            self.global_step, 2000, 0.333,
+            self.global_step, 10000, 0.333,
             staircase=True)
-        #self.learning_rate = base_lr
+
+        #   Inside Variable
         self.train_step = []
         self.losses = []
         self.w_summary = w_summary
@@ -54,10 +96,17 @@ class CPM():
 
         self.img = None
         self.gtmap = None
-        self.stagehmap = []
 
         self.summ_scalar_list = []
+        self.summ_accuracy_list = []
         self.summ_image_list = []
+        self.summ_histogram_list = []
+
+        #   load model
+        if pretrained_model is not None:
+            self.pretrained_model = np.load(pretrained_model, encoding='latin1').item()
+        else:
+            self.pretrained_model = None
 
 
     def __build_ph(self):
@@ -78,19 +127,20 @@ class CPM():
     def __build_train_op(self):
         #   Optimizer
         with tf.name_scope('loss'):
-            for idx in range(len(self.stagehmap)):
-                __para = []
-                assert self.stagehmap!=[]
-                '''
-                loss = tf.multiply(self.weight[idx], 
-                    tf.reduce_sum(tf.nn.l2_loss(
-                        self.stagehmap[idx] - self.gtmap, name='loss_stage_%d' % idx)))
-                '''
-                if self.w_loss:
-                    self.loss = tf.reduce_mean(self.weighted_bce_loss(), name='reduced_loss')
-                else:
-                    self.loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.output, labels= self.gtMaps), name= 'cross_entropy_loss')
-                self.summ_scalar_list.append(tf.summary.scalar("loss", self.loss))
+            __para = []
+            #'''
+            loss = tf.multiply(self.weight,
+                tf.reduce_sum(tf.nn.l2_loss(
+                    self.output - self.gtmap, name='loss_final')))
+            self.losses.append(loss)
+            #'''
+            '''
+            if self.w_loss:
+                self.loss = tf.reduce_mean(self.weighted_bce_loss(), name='reduced_loss')
+            else:
+                self.loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.output, 
+                    labels= self.gtMaps), name= 'cross_entropy_loss')
+            '''
             self.total_loss = tf.reduce_mean(self.losses)
             self.summ_scalar_list.append(tf.summary.scalar("total loss", self.total_loss))
             self.summ_scalar_list.append(tf.summary.scalar("lr", self.learning_rate))
@@ -100,10 +150,10 @@ class CPM():
                 #self.optimizer = tf.train.AdamOptimizer(self.learning_rate, epsilon=1e-8)
                 #self.optimizer = tf.train.AdamOptimizer(self.learning_rate)
                 self.optimizer = tf.train.GradientDescentOptimizer(self.learning_rate)
+                #self.optimizer = tf.train.AdamOptimizer(self.learning_rate, epsilon=1e-8)
                 #   Global train
-                self.train_step.append(self.optimizer.minimize(self.loss/self.batch_size, 
-                    global_step=self.global_step,
-                    colocate_gradients_with_ops=True))
+                self.train_step.append(self.optimizer.minimize(self.total_loss/self.batch_size,
+                    global_step=self.global_step))
         print "- OPTIMIZER build finished!"
 
     def BuildModel(self):
@@ -128,15 +178,24 @@ class CPM():
         #   merge all summary
         self.summ_image = tf.summary.merge(self.summ_image_list)
         self.summ_scalar = tf.summary.merge(self.summ_scalar_list)
+        self.summ_accuracy = tf.summary.merge(self.summ_accuracy_list)
+        self.summ_histogram = tf.summary.merge(self.summ_histogram_list)
         self.writer.add_graph(self.sess.graph)
+        print "[*]\tModel Built"
+
+
+
 
     def train(self):
+        """ Training Progress in CPM
+        :return:    Nothing to output
+        """
         _epoch_count = 0
         _iter_count = 0
     
         #   datagen from Hourglass
-        self.generator = self.dataset._aux_generator(self.batch_size, stack = self.stage, normalize = True, sample_set = 'train')
-        self.valid_gen = self.dataset._aux_generator(self.batch_size, stack = self.stage, normalize = True, sample_set = 'valid')
+        self.generator = self.dataset._aux_generator(self.batch_size, stacks=self.stage, normalize = True, sample_set = 'train')
+        self.valid_gen = self.dataset._aux_generator(self.batch_size, stacks=self.stage, normalize = True, sample_set = 'valid')
 
         for n in range(self.epoch):
             for m in range(self.epoch_size):
@@ -148,33 +207,50 @@ class CPM():
                         self.gtmap:_train_batch[1],
                         self.weight:_train_batch[2]})
                 #   summaries
-                if _iter_count % 20 == 0:
-                    _test_batch = next(self.valid_gen)
-                    #   generate heatmap from the network
-                    maps = self.sess.run(self.stagehmap,
-                        feed_dict={self.img: _test_batch[0],
-                                    self.gtmap: _test_batch[1],
-                                    self.weight: _test_batch[2]})
-                    print "[!] saved heatmap with size of ", maps.shape
-                    np.save(self.log_dir+"stagehmap.npy", maps)
-                    print "[!] saved ground truth with size of ", gt.shape
-                    np.save(self.log_dir+"gt.npy", _test_batch[1])
-                    del maps, _test_batch
                 if _iter_count % 10 == 0:
-                    print "epoch ", _epoch_count, " iter ", _iter_count, self.sess.run(self.total_loss, feed_dict={self.img: _train_batch[0], self.gtmap:_train_batch[1], self.weight:_train_batch[2]})
+                    _test_batch = next(self.valid_gen)
+                    print "epoch ", _epoch_count, " iter ", _iter_count, self.sess.run(self.total_loss, feed_dict={self.img: _test_batch[0], self.gtmap:_test_batch[1], self.weight:_test_batch[2]})
                     #   doing the scalar summary
                     self.writer.add_summary(
-                        self.sess.run(self.summ_scalar,feed_dict={self.img: _train_batch[0], 
-                            self.gtmap:_train_batch[1], 
-                            self.weight:_train_batch[2]}),
+                        self.sess.run(self.summ_scalar,feed_dict={self.img: _train_batch[0],
+                                                        self.gtmap:_train_batch[1],
+                                                        self.weight:_train_batch[2]}),
                         _iter_count)
+                    self.writer.add_summary(
+                        self.sess.run(self.summ_image, feed_dict={self.img: _test_batch[0],
+                                                        self.gtmap:_test_batch[1],
+                                                        self.weight:_test_batch[2]}),
+                        _iter_count)
+                    self.writer.add_summary(
+                        self.sess.run(self.summ_accuracy, feed_dict={self.img: _test_batch[0],
+                                                              self.gtmap: _test_batch[1],
+                                                              self.weight: _test_batch[2]}),
+                        _iter_count)
+                    self.writer.add_summary(
+                        self.sess.run(self.summ_histogram, feed_dict={self.img: _train_batch[0],
+                                                        self.gtmap:_train_batch[1],
+                                                        self.weight:_train_batch[2]}),
+                        _iter_count)
+                if _iter_count % 20 == 0:
+                    #   generate heatmap from the network
+                    maps = self.sess.run(self.output,
+                            feed_dict={self.img: _test_batch[0],
+                                    self.gtmap: _test_batch[1],
+                                    self.weight: _test_batch[2]})
+                    if self.log_dir is not None:
+                        print "[!] saved heatmap with size of ", maps.shape
+                        np.save(self.log_dir+"output.npy", maps)
+                        print "[!] saved ground truth with size of ", self.gtmap.shape
+                        np.save(self.log_dir+"gt.npy", _test_batch[1])
+                    del maps, _test_batch
                 print "iter:", _iter_count
                 _iter_count += 1
                 self.writer.flush()
                 del _train_batch
             _epoch_count += 1
             #   save model every epoch
-            self.saver.save(self.sess, os.path.join(self.log_dir, "model.ckpt"), n)
+            if self.log_dir is not None:
+                self.saver.save(self.sess, os.path.join(self.log_dir, "model.ckpt"), n)
 
     def _argmax(self, tensor):
         """ ArgMax
@@ -218,31 +294,31 @@ class CPM():
         """ 
         Computes accuracy tensor
         """
-        for j in range(len(self.stagehmap)):
-            for i in range(self.joint_num):
-                self.summ_scalar_list.append(tf.summary.scalar("stage "+str(j)+"-"+str(i)+"th joint accuracy", self._accur(self.stagehmap[j][i], self.gtmap[i], self.batch_size), 'accuracy'))
+        for i in range(self.joint_num):
+            self.summ_accuracy_list.append(tf.summary.scalar(self.joints[i]+"_accuracy",
+                                                           self._accur(self.output[:, self.stage-1, :, :, i], self.gtmap[:, self.stage-1, :, :, i], self.batch_size),
+                                                           'accuracy'))
         print "- ACC_SUMMARY build finished!"
 
     def __build_monitor(self):
-        #   calculate the return full map
-        __all_gt = tf.expand_dims(tf.expand_dims(tf.reduce_sum(tf.transpose(self.gtmap, perm=[0,3,1,2])[0], axis=[0]), 0), 3)
-        __image = tf.expand_dims(tf.transpose(self.img, perm=[0,3,1,2])[0], 3)
-        self.summ_image_list.append(tf.summary.image("gtmap", __all_gt,
-            max_outputs=1))
-        self.summ_image_list.append(tf.summary.image("image", __image,
-            max_outputs=3))
-        
-        for m in range(len(self.stagehmap)):
-            #   __sample_pred have the shape of
-            #   16 * INPUT+_SIZE/8 * INPUT_SIZE/8
-            __sample_pred = tf.transpose(self.stagehmap[m], perm=[0,3,1,2])[0]
-            #   __all_pred have shape of 
-            #   INPUT_SIZE/8 * INPUT_SIZE/8
-            __all_pred = tf.expand_dims(tf.expand_dims(tf.reduce_sum(tf.transpose(self.stagehmap[m], perm=[0,3,1,2])[0], axis=[0]), 0), 3)
-            print "\tvisual heat map have shape of ", __all_pred.shape
-            self.summ_image_list.append(tf.summary.image("stage"+str(m)+" map", __all_pred, max_outputs=1))
-        del __all_gt, __image, __sample_pred, __all_pred
-        print "- IMAGE_SUMMARY build finished!"
+        with tf.device(self.cpu):
+            #   calculate the return full map
+            __all_gt = tf.expand_dims(tf.expand_dims(tf.reduce_sum(tf.transpose(self.gtmap, perm=[0, 1, 4, 2, 3])[0], axis=[0, 1]), 0), 3)
+            self.summ_image_list.append(tf.summary.image("gtmap", __all_gt, max_outputs=1))
+            self.summ_image_list.append(tf.summary.image("image", tf.expand_dims(self.img[0], 0), max_outputs=3))
+            print "\t* monitor image have shape of ", tf.expand_dims(self.img[0], 0).shape
+            print "\t* monitor GT have shape of ", __all_gt.shape
+            for m in range(self.stage):
+                #   __sample_pred have the shape of
+                #   16 * INPUT+_SIZE/8 * INPUT_SIZE/8
+                __sample_pred = tf.transpose(self.output[0, m], perm=[2, 0, 1])
+                #   __all_pred have shape of
+                #   INPUT_SIZE/8 * INPUT_SIZE/8
+                __all_pred = tf.expand_dims(tf.expand_dims(tf.reduce_sum(__sample_pred, axis=[0]), 0), 3)
+                print "\tvisual heat map have shape of ", __all_pred.shape
+                self.summ_image_list.append(tf.summary.image("stage"+str(m)+" map", __all_pred, max_outputs=1))
+            del __all_gt, __sample_pred, __all_pred
+            print "- IMAGE_SUMMARY build finished!"
 
     def __TestAcc(self):
         self.dataset.shuffle()
@@ -263,7 +339,7 @@ class CPM():
         e3 = tf.expand_dims(e2,axis = 1, name = 'expdim03')
         return tf.multiply(e3,self.bceloss, name = 'lossW')
 
-    def net(self, image):
+    def net(self, image, name='CPM'):
         """ CPM Net Structure
         Args:
             image           : Input image with n times of 8
@@ -272,7 +348,7 @@ class CPM():
             stacked heatmap : Heatmap NSHWC format
                                 size:   batch_size * stage_num * in_size/8 * in_size/8 * joint_num 
         """
-        with tf.name_scope('CPM'):
+        with tf.variable_scope(name):
             fmap = self._feature_extractor(image, 'VGG', 'Feature_Extractor')
             stage = [None] * self.stage
             stage[0] = self._cpm_stage(fmap, 1, None)
@@ -284,7 +360,7 @@ class CPM():
 
     #   ======= Net Component ========
 
-    def _conv(self, inputs, filters, kernel_size = 1, strides = 1, pad = 'VALID', name = 'conv'):
+    def _conv(self, inputs, filters, kernel_size = 1, strides = 1, pad='VALID', name='conv', use_loaded=False):
         """ Spatial Convolution (CONV2D)
         Args:
             inputs			: Input Tensor (Data Type : NHWC)
@@ -296,34 +372,55 @@ class CPM():
         Returns:
             conv			: Output Tensor (Convolved Input)
         """
-        with tf.name_scope(name):
-            # Kernel for convolution, Xavier Initialisation
-            kernel = tf.Variable(tf.contrib.layers.xavier_initializer(uniform=False)([kernel_size,kernel_size, inputs.get_shape().as_list()[3], filters]), name= 'weights')
+        with tf.variable_scope(name):
+            if use_loaded:
+                if self.pretrained_model is not None:
+                    kernel = tf.Variable(self.pretrained_model[name][0], name='weights')
+                    bias = tf.Variable(self.pretrained_model[name][1], name='bias')
+                else:
+                    raise ValueError
+            else:
+                # Kernel for convolution, Xavier Initialisation
+                kernel = tf.Variable(tf.contrib.layers.xavier_initializer(uniform=False)([kernel_size,kernel_size, inputs.get_shape().as_list()[3], filters]), name= 'weights')
+                bias = tf.Variable(tf.zeros([filters]), name='bias')
             conv = tf.nn.conv2d(inputs, kernel, [1,strides,strides,1], padding=pad, data_format='NHWC')
+            conv_bias = tf.nn.bias_add(conv, bias)
             if self.w_summary:
-                with tf.device('/cpu:0'):
-                    tf.summary.histogram('weights_summary', kernel, collections = ['weight'])
-            return conv
+                with tf.device(self.cpu):
+                    self.summ_histogram_list.append(tf.summary.histogram(name+'weights', kernel, collections=['weight']))
+                    self.summ_histogram_list.append(tf.summary.histogram(name+'bias', bias, collections=['bias']))
+            return conv_bias
 
-    def _conv_bn_relu(self, inputs, filters, kernel_size = 1, strides = 1, pad = 'VALID', name = 'conv_bn_relu'):
+    def _conv_bn_relu(self, inputs, filters, kernel_size = 1, strides=1, pad='VALID', name='conv_bn_relu', use_loaded=False):
         """ Spatial Convolution (CONV2D) + BatchNormalization + ReLU Activation
         Args:
             inputs			: Input Tensor (Data Type : NHWC)
-            filters		: Number of filters (channels)
-            kernel_size	: Size of kernel
-            strides		: Stride
+            filters		    : Number of filters (channels)
+            kernel_size	    : Size of kernel
+            strides		    : Stride
             pad				: Padding Type (VALID/SAME) # DO NOT USE 'SAME' NETWORK BUILT FOR VALID
             name			: Name of the block
+            use_loaded      : Use related name to find weight and bias
         Returns:
             norm			: Output Tensor
         """
-        with tf.name_scope(name):
-            kernel = tf.Variable(tf.contrib.layers.xavier_initializer(uniform=False)([kernel_size,kernel_size, inputs.get_shape().as_list()[3], filters]), name= 'weights')
+        with tf.variable_scope(name):
+            if use_loaded:
+                if  self.pretrained_model is not None:
+                    kernel = tf.Variable(self.pretrained_model[name][0], name='weights', trainable=False)
+                    bias = tf.Variable(self.pretrained_model[name][1], name='bias', trainable=False)
+                else:
+                    raise ValueError
+            else:
+                kernel = tf.Variable(tf.contrib.layers.xavier_initializer(uniform=False)([kernel_size,kernel_size, inputs.get_shape().as_list()[3], filters]), name= 'weights')
+                bias = tf.Variable(tf.zeros([filters]), name='bias')
             conv = tf.nn.conv2d(inputs, kernel, [1,strides,strides,1], padding=pad, data_format='NHWC')
-            norm = tf.contrib.layers.batch_norm(conv, 0.9, epsilon=1e-5, activation_fn = tf.nn.relu, is_training = self.training)
+            conv_bias = tf.nn.bias_add(conv, bias)
+            norm = tf.contrib.layers.batch_norm(conv_bias, 0.9, epsilon=1e-5, activation_fn = tf.nn.relu, is_training = self.training)
             if self.w_summary:
-                with tf.device('/cpu:0'):
-                    tf.summary.histogram('weights_summary', kernel, collections = ['weight'])
+                with tf.device(self.cpu):
+                    self.summ_histogram_list.append(tf.summary.histogram(name+'weights', kernel, collections=['weight']))
+                    self.summ_histogram_list.append(tf.summary.histogram(name+'bias', bias, collections=['bias']))
             return norm
     
     def _conv_block(self, inputs, numOut, name = 'conv_block'):
@@ -342,7 +439,7 @@ class CPM():
                 conv = self._conv(pad, int(numOut), kernel_size=3, strides=1, pad = 'VALID', name= 'conv')
                 return conv
         else:
-            with tf.name_scope(name):
+            with tf.variable_scope(name):
                 with tf.name_scope('norm_1'):
                     norm_1 = tf.contrib.layers.batch_norm(inputs, 0.9, epsilon=1e-5, activation_fn = tf.nn.relu, is_training = self.training)
                     conv_1 = self._conv(norm_1, int(numOut/2), kernel_size=1, strides=1, pad = 'VALID', name= 'conv')
@@ -364,21 +461,21 @@ class CPM():
         Returns:
             Tensor of shape (None, inputs.height, inputs.width, numOut)
         """
-        with tf.name_scope(name):
+        with tf.variable_scope(name):
             if inputs.get_shape().as_list()[3] == numOut:
                 return inputs
             else:
                 conv = self._conv(inputs, numOut, kernel_size=1, strides = 1, name = 'conv')
                 return conv				
     
-    def _residual(self, inputs, numOut, name = 'residual_block'):
+    def _residual(self, inputs, numOut, name='residual_block'):
         """ Residual Unit
         Args:
             inputs	: Input Tensor
             numOut	: Number of Output Features (channels)
             name	: Name of the block
         """
-        with tf.name_scope(name):
+        with tf.variable_scope(name):
             convb = self._conv_block(inputs, numOut)
             skipl = self._skip_layer(inputs, numOut)
             if self.net_debug:
@@ -386,23 +483,23 @@ class CPM():
             else:
                 return tf.add_n([convb, skipl], name = 'res_block')
 
-    def _feature_extractor(self, inputs, net_type='VGG', name = 'Feature_Extractor'):
+    def _feature_extractor(self, inputs, net_type='VGG', name='Feature_Extractor'):
         """ Feature Extractor
         For VGG Feature Extractor down-scale by x8
         For ResNet Feature Extractor downscale by x4 (Current Setup)
 
         TODO:
-            VGG PreLoad Feature Extractor Need to be implemented
+
         Net use VGG as default setup
         Args:
             inputs      : Input Tensor (Data Format: NHWC)
-            name        : Name of the Extrator
+            name        : Name of the Extractor
         Returns:
             net         : Output Tensor            
         """
-        with tf.name_scope(name):
+        with tf.variable_scope(name):
             if net_type == 'ResNet':
-                net = self._conv_bn_relu(inputs, 64, 7, 2, 'VALID')
+                net = self._conv_bn_relu(inputs, 64, 7, 2, 'SAME')
                 #   down scale by 2
                 net = self._residual(net, 128, 'r1')
                 net = tf.contrib.layers.max_pool2d(net, [2,2], [2,2], padding='pool1')
@@ -416,22 +513,22 @@ class CPM():
                 return net
             else:
                 #   VGG based
-                net = self._conv_bn_relu(inputs, 64, 3, 1, 'VALID', 'conv1_1')
-                net = self._conv_bn_relu(net, 64, 3, 1, 'VALID', 'conv1_2')
-                net = tf.contrib.layers.max_pool2d(net, [2,2], [2,2], padding='pool1')
+                net = self._conv_bn_relu(inputs, 64, 3, 1, 'SAME', 'conv1_1', use_loaded=True)
+                net = self._conv_bn_relu(net, 64, 3, 1, 'SAME', 'conv1_2', use_loaded=True)
+                net = tf.contrib.layers.max_pool2d(net, [2,2], [2,2], padding='SAME', scope='pool1')
                 #   down scale by 2
-                net = self._conv_bn_relu(net, 128, 3, 1, 'VALID', 'conv2_1')
-                net = self._conv_bn_relu(net, 128, 3, 1, 'VALID', 'conv2_2')
-                net = tf.contrib.layers.max_pool2d(net, [2,2], [2,2], padding='pool2')
+                net = self._conv_bn_relu(net, 128, 3, 1, 'SAME', 'conv2_1', use_loaded=True)
+                net = self._conv_bn_relu(net, 128, 3, 1, 'SAME', 'conv2_2', use_loaded=True)
+                net = tf.contrib.layers.max_pool2d(net, [2,2], [2,2], padding='SAME', scope='pool2')
                 #   down scale by 2
-                net = self._conv_bn_relu(net, 256, 3, 1, 'VALID', 'conv3_1')
-                net = self._conv_bn_relu(net, 256, 3, 1, 'VALID', 'conv3_2')
-                net = self._conv_bn_relu(net, 256, 3, 1, 'VALID', 'conv3_3')
-                net = self._conv_bn_relu(net, 256, 3, 1, 'VALID', 'conv3_4')
-                net = tf.contrib.layers.max_pool2d(net, [2,2], [2,2], padding='pool3')
+                net = self._conv_bn_relu(net, 256, 3, 1, 'SAME', 'conv3_1', use_loaded=True)
+                net = self._conv_bn_relu(net, 256, 3, 1, 'SAME', 'conv3_2', use_loaded=True)
+                net = self._conv_bn_relu(net, 256, 3, 1, 'SAME', 'conv3_3', use_loaded=True)
+                net = self._conv_bn_relu(net, 256, 3, 1, 'SAME', 'conv3_4', use_loaded=True)
+                net = tf.contrib.layers.max_pool2d(net, [2,2], [2,2], padding='SAME', scope='pool3')
                 #   down scale by 2
-                net = self._conv_bn_relu(net, 512, 3, 1, 'VALID', 'conv4_1')
-                net = self._conv_bn_relu(net, 512, 3, 1, 'VALID', 'conv4_2')
+                net = self._conv_bn_relu(net, 512, 3, 1, 'SAME', 'conv4_1', use_loaded=True)
+                net = self._conv_bn_relu(net, 512, 3, 1, 'SAME', 'conv4_2', use_loaded=True)
                 return net
 
     def _cpm_stage(self, feat_map, stage_num, last_stage = None):
@@ -441,33 +538,28 @@ class CPM():
             last_stage  : Input Tensor from below
             stage_num   : stage number
             name        : name of the stage
+        
+        TODO:
+            Load the stage params from npy file
         """
-        with tf.name_scope('CPM_stage'+str(stage_num)):
+        with tf.variable_scope('CPM_stage'+str(stage_num)):
             if stage_num == 1:
-                net = self._conv_bn_relu(feat_map, 256, 3, 1, 'VALID', 'conv4_3_CPM')
-                net = self._conv_bn_relu(net, 256, 3, 1, 'VALID', 'conv4_4_CPM')
-                net = self._conv_bn_relu(net, 256, 3, 1, 'VALID', 'conv4_5_CPM')
-                net = self._conv_bn_relu(net, 256, 3, 1, 'VALID', 'conv4_6_CPM')
-                net = self._conv_bn_relu(net, 128, 3, 1, 'VALID', 'conv4_7_CPM')
-                net = tf.layers.dropout(net, rate = self.dropout_rate, training = self.training, name = 'dropout')
-                net = self._conv_bn_relu(net, 512, 1, 1, 'VALID', 'conv5_1_CPM')
-                net = self._conv_bn_relu(net, self.joint_num, 1, 1, 'VALID', 'conv5_2_CPM')
+                net = self._conv_bn_relu(feat_map, 256, 3, 1, 'SAME', 'conv4_3_CPM')
+                net = self._conv_bn_relu(net, 256, 3, 1, 'SAME', 'conv4_4_CPM')
+                net = self._conv_bn_relu(net, 256, 3, 1, 'SAME', 'conv4_5_CPM')
+                net = self._conv_bn_relu(net, 256, 3, 1, 'SAME', 'conv4_6_CPM')
+                net = self._conv_bn_relu(net, 128, 3, 1, 'SAME', 'conv4_7_CPM')
+                net = self._conv_bn_relu(net, 512, 1, 1, 'SAME', 'conv5_1_CPM')
+                net = self._conv(net, self.joint_num+1, 1, 1, 'SAME', 'conv5_2_CPM')
                 return net
             elif stage_num > 1:
-                tf.assert_none_equal(last_stage, None)
                 net = tf.concat([feat_map, last_stage], 3)
-                net = self._conv_bn_relu(net, 128, 7, 1, 'VALID', 'Mconv1_stage'+str(stage_num))
-                net = self._conv_bn_relu(net, 128, 7, 1, 'VALID', 'Mconv2_stage'+str(stage_num))
-                net = self._conv_bn_relu(net, 128, 7, 1, 'VALID', 'Mconv3_stage'+str(stage_num))
-                net = self._conv_bn_relu(net, 128, 7, 1, 'VALID', 'Mconv4_stage'+str(stage_num))
-                net = self._conv_bn_relu(net, 128, 7, 1, 'VALID', 'Mconv5_stage'+str(stage_num))
-                net = tf.layers.dropout(net, rate = self.dropout_rate, training = self.training, name = 'dropout')
-                net = self._conv_bn_relu(net, 128, 1, 1, 'VALID', 'Mconv6_stage'+str(stage_num))
-                net = self._conv_bn_relu(net, self.joint_num, 1, 1, 'VALID', 'Mconv7_stage'+str(stage_num))
+                net = self._conv_bn_relu(net, 128, 7, 1, 'SAME', 'Mconv1_stage'+str(stage_num))
+                net = self._conv_bn_relu(net, 128, 7, 1, 'SAME', 'Mconv2_stage'+str(stage_num))
+                net = self._conv_bn_relu(net, 128, 7, 1, 'SAME', 'Mconv3_stage'+str(stage_num))
+                net = self._conv_bn_relu(net, 128, 7, 1, 'SAME', 'Mconv4_stage'+str(stage_num))
+                net = self._conv_bn_relu(net, 128, 7, 1, 'SAME', 'Mconv5_stage'+str(stage_num))
+                net = self._conv_bn_relu(net, 128, 1, 1, 'SAME', 'Mconv6_stage'+str(stage_num))
+                net = self._conv(net, self.joint_num+1, 1, 1, 'SAME', 'Mconv7_stage'+str(stage_num))
                 return net
-
-
-                
-                
-
 

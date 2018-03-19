@@ -1,15 +1,11 @@
 #	Global variable goes here
 #	first to define the dataset root
 
-MPII_ROOT = "mpii/"
-IMG_ROOT = MPII_ROOT + "images/"
-ANNO_ROOT = MPII_ROOT + "train/"
-TRAIN_LIST = MPII_ROOT + "train_list.txt"
-GT_ROOT = MPII_ROOT + "gt/"
+IMG_ROOT = "/var/data/Dataset/images"
 
 INPUT_SIZE = 368
-base_lr = 4e-5
-epoch = 600
+base_lr = 4e-4
+epoch = 30
 batch_size = 16
 
 LOGDIR = 'log/'

@@ -23,3 +23,9 @@ data/
 
 #	Ignore backup file
 *.bak.tar
+
+#   Ignore Pycharm files
+.idea/
+
+#   Ignore Pretrained model
+model/

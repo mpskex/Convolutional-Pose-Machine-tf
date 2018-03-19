@@ -2,7 +2,7 @@
 """
     Convulotional Pose Machine
         For Single Person Pose Estimation
-    Human Pose Estimation Project in Lab
+    Human Pose Estimation Project in Lab of IP
     Author: Liu Fangrui aka mpsk
         Beijing University of Technology
             College of Computer Science & Technology
@@ -17,7 +17,7 @@ class CPM():
     """
     CPM net
     """
-    def __init__(self, base_lr=0.0005, in_size=368, batch_size=16, epoch=200, dataset = None, log_dir=None, stage=6,
+    def __init__(self, base_lr=0.0005, in_size=368, batch_size=16, epoch=20, dataset = None, log_dir=None, stage=6,
                  epoch_size=1000, w_summary=True, training=True, joints=None, cpu_only=False, pretrained_model='vgg19.npy',
                  load_pretrained=False):
         """ CPM Net implemented with Tensorflow
@@ -45,6 +45,10 @@ class CPM():
         *   if log_dir is None, then the model won't output any save files
             but here we defines a default log ditectory, so don't worry
 
+        TODO:
+        *   Save model as numpy
+        *   Predicting codes
+        *   PCKh & mAP Test code
         """
         tf.reset_default_graph()
         self.sess = tf.Session()
@@ -103,6 +107,7 @@ class CPM():
         self.summ_histogram_list = []
 
         #   load model
+        self.load_pretrained = load_pretrained
         if pretrained_model is not None:
             self.pretrained_model = np.load(pretrained_model, encoding='latin1').item()
         else:
@@ -110,6 +115,9 @@ class CPM():
 
 
     def __build_ph(self):
+        """ Building Placeholder in tensorflow session
+        :return:
+        """
         #   Valid & Train input
         #   input image : channel 3
         self.img = tf.placeholder(tf.float32, 
@@ -125,6 +133,9 @@ class CPM():
         print "- PLACEHOLDER build finished!"
     
     def __build_train_op(self):
+        """ Building training associates: losses & loss summary
+        :return:
+        """
         #   Optimizer
         with tf.name_scope('loss'):
             __para = []
@@ -157,6 +168,9 @@ class CPM():
         print "- OPTIMIZER build finished!"
 
     def BuildModel(self):
+        """ Building model in tensorflow session
+        :return:
+        """
         #   input
         with tf.name_scope('input'):
             self.__build_ph()
@@ -301,6 +315,9 @@ class CPM():
         print "- ACC_SUMMARY build finished!"
 
     def __build_monitor(self):
+        """ Building image summaries
+        :return:
+        """
         with tf.device(self.cpu):
             #   calculate the return full map
             __all_gt = tf.expand_dims(tf.expand_dims(tf.reduce_sum(tf.transpose(self.gtmap, perm=[0, 1, 4, 2, 3])[0], axis=[0, 1]), 0), 3)
@@ -321,6 +338,9 @@ class CPM():
             print "- IMAGE_SUMMARY build finished!"
 
     def __TestAcc(self):
+        """ Calculate Accuracy (Please use validation data)
+        :return:
+        """
         self.dataset.shuffle()
         assert self.dataset.idx_batches!=None
         for m in self.dataset.idx_batches:
@@ -486,9 +506,7 @@ class CPM():
     def _feature_extractor(self, inputs, net_type='VGG', name='Feature_Extractor'):
         """ Feature Extractor
         For VGG Feature Extractor down-scale by x8
-        For ResNet Feature Extractor downscale by x4 (Current Setup)
-
-        TODO:
+        For ResNet Feature Extractor downscale by x8 (Current Setup)
 
         Net use VGG as default setup
         Args:
@@ -502,14 +520,17 @@ class CPM():
                 net = self._conv_bn_relu(inputs, 64, 7, 2, 'SAME')
                 #   down scale by 2
                 net = self._residual(net, 128, 'r1')
-                net = tf.contrib.layers.max_pool2d(net, [2,2], [2,2], padding='pool1')
+                net = tf.contrib.layers.max_pool2d(net, [2,2], [2,2], padding='SAME', name='pool1')
                 #   down scale by 2
                 net = self._residual(net, 128, 'r2')
                 net = self._residual(net, 256, 'r3')
-                net = tf.contrib.layers.max_pool2d(net, [2,2], [2,2], padding='pool2')
+                net = tf.contrib.layers.max_pool2d(net, [2,2], [2,2], padding='SAME', name='pool2')
                 #   down scale by 2
-                net = tf.contrib.layers.max_pool2d(net, [2,2], [2,2], padding='pool1')
+                net = tf.contrib.layers.max_pool2d(net, [2,2], [2,2], padding='SAME', name='pool3')
                 net = self._residual(net, 512, 'r4')
+                net = tf.contrib.layers.max_pool2d(net, [2,2], [2,2], padding='SAME', name='pool4')
+                #   optional 
+                #net = self._residual(net, 512, 'r5')
                 return net
             else:
                 #   VGG based
@@ -538,28 +559,25 @@ class CPM():
             last_stage  : Input Tensor from below
             stage_num   : stage number
             name        : name of the stage
-        
-        TODO:
-            Load the stage params from npy file
         """
         with tf.variable_scope('CPM_stage'+str(stage_num)):
             if stage_num == 1:
-                net = self._conv_bn_relu(feat_map, 256, 3, 1, 'SAME', 'conv4_3_CPM')
-                net = self._conv_bn_relu(net, 256, 3, 1, 'SAME', 'conv4_4_CPM')
-                net = self._conv_bn_relu(net, 256, 3, 1, 'SAME', 'conv4_5_CPM')
-                net = self._conv_bn_relu(net, 256, 3, 1, 'SAME', 'conv4_6_CPM')
-                net = self._conv_bn_relu(net, 128, 3, 1, 'SAME', 'conv4_7_CPM')
-                net = self._conv_bn_relu(net, 512, 1, 1, 'SAME', 'conv5_1_CPM')
-                net = self._conv(net, self.joint_num+1, 1, 1, 'SAME', 'conv5_2_CPM')
+                net = self._conv_bn_relu(feat_map, 256, 3, 1, 'SAME', 'conv4_3_CPM', use_loaded=self.load_pretrained)
+                net = self._conv_bn_relu(net, 256, 3, 1, 'SAME', 'conv4_4_CPM', use_loaded=self.load_pretrained)
+                net = self._conv_bn_relu(net, 256, 3, 1, 'SAME', 'conv4_5_CPM', use_loaded=self.load_pretrained)
+                net = self._conv_bn_relu(net, 256, 3, 1, 'SAME', 'conv4_6_CPM', use_loaded=self.load_pretrained)
+                net = self._conv_bn_relu(net, 128, 3, 1, 'SAME', 'conv4_7_CPM', use_loaded=self.load_pretrained)
+                net = self._conv_bn_relu(net, 512, 1, 1, 'SAME', 'conv5_1_CPM', use_loaded=self.load_pretrained)
+                net = self._conv(net, self.joint_num+1, 1, 1, 'SAME', 'conv5_2_CPM', use_loaded=self.load_pretrained)
                 return net
             elif stage_num > 1:
                 net = tf.concat([feat_map, last_stage], 3)
-                net = self._conv_bn_relu(net, 128, 7, 1, 'SAME', 'Mconv1_stage'+str(stage_num))
-                net = self._conv_bn_relu(net, 128, 7, 1, 'SAME', 'Mconv2_stage'+str(stage_num))
-                net = self._conv_bn_relu(net, 128, 7, 1, 'SAME', 'Mconv3_stage'+str(stage_num))
-                net = self._conv_bn_relu(net, 128, 7, 1, 'SAME', 'Mconv4_stage'+str(stage_num))
-                net = self._conv_bn_relu(net, 128, 7, 1, 'SAME', 'Mconv5_stage'+str(stage_num))
-                net = self._conv_bn_relu(net, 128, 1, 1, 'SAME', 'Mconv6_stage'+str(stage_num))
-                net = self._conv(net, self.joint_num+1, 1, 1, 'SAME', 'Mconv7_stage'+str(stage_num))
+                net = self._conv_bn_relu(net, 128, 7, 1, 'SAME', 'Mconv1_stage'+str(stage_num), use_loaded=self.load_pretrained)
+                net = self._conv_bn_relu(net, 128, 7, 1, 'SAME', 'Mconv2_stage'+str(stage_num), use_loaded=self.load_pretrained)
+                net = self._conv_bn_relu(net, 128, 7, 1, 'SAME', 'Mconv3_stage'+str(stage_num), use_loaded=self.load_pretrained)
+                net = self._conv_bn_relu(net, 128, 7, 1, 'SAME', 'Mconv4_stage'+str(stage_num), use_loaded=self.load_pretrained)
+                net = self._conv_bn_relu(net, 128, 7, 1, 'SAME', 'Mconv5_stage'+str(stage_num), use_loaded=self.load_pretrained)
+                net = self._conv_bn_relu(net, 128, 1, 1, 'SAME', 'Mconv6_stage'+str(stage_num), use_loaded=self.load_pretrained)
+                net = self._conv(net, self.joint_num+1, 1, 1, 'SAME', 'Mconv7_stage'+str(stage_num), use_loaded=self.load_pretrained)
                 return net
 

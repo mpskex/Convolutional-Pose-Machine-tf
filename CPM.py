@@ -10,6 +10,7 @@
         !!DO NOT USE IT AS DEPLOYMENT!!
 """
 import os
+import time
 import numpy as np
 import tensorflow as tf
 
@@ -19,7 +20,7 @@ class CPM():
     """
     def __init__(self, base_lr=0.0005, in_size=368, batch_size=16, epoch=20, dataset = None, log_dir=None, stage=6,
                  epoch_size=1000, w_summary=True, training=True, joints=None, cpu_only=False, pretrained_model='vgg19.npy',
-                 load_pretrained=False):
+                 load_pretrained=False, predict=False):
         """ CPM Net implemented with Tensorflow
 
         :param base_lr:             starter learning rate
@@ -43,12 +44,12 @@ class CPM():
             if true, then it loads all weights & bias
 
         *   if log_dir is None, then the model won't output any save files
-            but here we defines a default log ditectory, so don't worry
+            but PLEASE DONT WORRY, we defines a default log ditectory
 
         TODO:
-        *   Save model as numpy
-        *   Predicting codes
-        *   PCKh & mAP Test code
+            *   Save model as numpy
+            *   Predicting codes
+            *   PCKh & mAP Test code
         """
         tf.reset_default_graph()
         self.sess = tf.Session()
@@ -112,6 +113,11 @@ class CPM():
             self.pretrained_model = np.load(pretrained_model, encoding='latin1').item()
         else:
             self.pretrained_model = None
+        #   dictionary of network parameters
+        self.var_dict = {}
+
+        #   predict mode
+        self.predict = predict
 
 
     def __build_ph(self):
@@ -178,26 +184,54 @@ class CPM():
         assert self.img!=None and self.gtmap!=None
         #   the net
         self.output = self.net(self.img)
-        
-        #   train op
-        with tf.name_scope('train'):
-            self.__build_train_op()
-        with tf.name_scope('image_summary'):
-            self.__build_monitor()
-        with tf.name_scope('accuracy'):
-            self.__build_accuracy()
+        if not self.predict:
+            #   train op
+            with tf.name_scope('train'):
+                self.__build_train_op()
+            with tf.name_scope('image_summary'):
+                self.__build_monitor()
+            with tf.name_scope('accuracy'):
+                self.__build_accuracy()
         #   initialize all variables
         self.sess.run(tf.global_variables_initializer())
         self.saver = tf.train.Saver()
-        #   merge all summary
-        self.summ_image = tf.summary.merge(self.summ_image_list)
-        self.summ_scalar = tf.summary.merge(self.summ_scalar_list)
-        self.summ_accuracy = tf.summary.merge(self.summ_accuracy_list)
-        self.summ_histogram = tf.summary.merge(self.summ_histogram_list)
-        self.writer.add_graph(self.sess.graph)
+        if not self.predict:
+            #   merge all summary
+            self.summ_image = tf.summary.merge(self.summ_image_list)
+            self.summ_scalar = tf.summary.merge(self.summ_scalar_list)
+            self.summ_accuracy = tf.summary.merge(self.summ_accuracy_list)
+            self.summ_histogram = tf.summary.merge(self.summ_histogram_list)
+            self.writer.add_graph(self.sess.graph)
         print "[*]\tModel Built"
 
+    def save_npy(self, save_path=None):
+        """ Save the parameters
+        :param save_path:       path to save
+        :return:                int - 0 for success
+        """
+        if save_path == None:
+            save_path = self.log_dir + 'model.npy'
+        data_dict = {}
+        for (name, idx), var in self.var_dict:
+            var_out = self.sess.run(var)
+            if name not in data_dict:
+                data_dict[name] = {}
+            data_dict[name][idx] = var_out
+        np.save(save_path, data_dict)
+        print("[*]\tfile saved to", save_path)
 
+    def restore_sess(self, model=None):
+        """ Restore session from ckpt format file
+        :param model:   model path like mode
+        :return:        Nothing
+        """
+        if model is not None:
+            t = time.time()
+            self.saver.restore(self.sess, model)
+            print("[*]\tSESS Restored!")
+        else:
+            print("Please input proper model path to restore!")
+            raise ValueError
 
 
     def train(self):
@@ -220,6 +254,8 @@ class CPM():
                     self.sess.run(step, feed_dict={self.img: _train_batch[0],
                         self.gtmap:_train_batch[1],
                         self.weight:_train_batch[2]})
+                #   doing save numpy params
+                self.save_npy()
                 #   summaries
                 if _iter_count % 10 == 0:
                     _test_batch = next(self.valid_gen)
@@ -245,6 +281,7 @@ class CPM():
                                                         self.gtmap:_train_batch[1],
                                                         self.weight:_train_batch[2]}),
                         _iter_count)
+
                 if _iter_count % 20 == 0:
                     #   generate heatmap from the network
                     maps = self.sess.run(self.output,
@@ -395,14 +432,21 @@ class CPM():
         with tf.variable_scope(name):
             if use_loaded:
                 if self.pretrained_model is not None:
-                    kernel = tf.Variable(self.pretrained_model[name][0], name='weights')
-                    bias = tf.Variable(self.pretrained_model[name][1], name='bias')
+                    if self.predict:
+                        kernel = tf.constant(self.pretrained_model[name][0], name='weights')
+                        bias = tf.constant(self.pretrained_model[name][1], name='bias')
+                    else:
+                        kernel = tf.Variable(self.pretrained_model[name][0], name='weights')
+                        bias = tf.Variable(self.pretrained_model[name][1], name='bias')
                 else:
                     raise ValueError
             else:
                 # Kernel for convolution, Xavier Initialisation
                 kernel = tf.Variable(tf.contrib.layers.xavier_initializer(uniform=False)([kernel_size,kernel_size, inputs.get_shape().as_list()[3], filters]), name= 'weights')
                 bias = tf.Variable(tf.zeros([filters]), name='bias')
+            #   save kernel and bias
+            self.var_dict[(name,0)] = kernel
+            self.var_dict[(name,1)] = bias
             conv = tf.nn.conv2d(inputs, kernel, [1,strides,strides,1], padding=pad, data_format='NHWC')
             conv_bias = tf.nn.bias_add(conv, bias)
             if self.w_summary:
@@ -411,7 +455,7 @@ class CPM():
                     self.summ_histogram_list.append(tf.summary.histogram(name+'bias', bias, collections=['bias']))
             return conv_bias
 
-    def _conv_bn_relu(self, inputs, filters, kernel_size = 1, strides=1, pad='VALID', name='conv_bn_relu', use_loaded=False):
+    def _conv_bn_relu(self, inputs, filters, kernel_size = 1, strides=1, pad='VALID', name='conv_bn_relu', use_loaded=False, lock=False):
         """ Spatial Convolution (CONV2D) + BatchNormalization + ReLU Activation
         Args:
             inputs			: Input Tensor (Data Type : NHWC)
@@ -427,13 +471,21 @@ class CPM():
         with tf.variable_scope(name):
             if use_loaded:
                 if  self.pretrained_model is not None:
-                    kernel = tf.Variable(self.pretrained_model[name][0], name='weights', trainable=False)
-                    bias = tf.Variable(self.pretrained_model[name][1], name='bias', trainable=False)
+                    if self.predict:
+                        #   TODO:   Assertion
+                        kernel = tf.constant(self.pretrained_model[name][0], name='weights')
+                        bias = tf.constant(self.pretrained_model[name][1], name='bias')
+                    else:
+                        kernel = tf.Variable(self.pretrained_model[name][0], name='weights', trainable=not lock)
+                        bias = tf.Variable(self.pretrained_model[name][1], name='bias', trainable=not lock)
                 else:
                     raise ValueError
             else:
                 kernel = tf.Variable(tf.contrib.layers.xavier_initializer(uniform=False)([kernel_size,kernel_size, inputs.get_shape().as_list()[3], filters]), name= 'weights')
                 bias = tf.Variable(tf.zeros([filters]), name='bias')
+            #   save kernel and bias
+            self.var_dict[(name,0)] = kernel
+            self.var_dict[(name,1)] = bias
             conv = tf.nn.conv2d(inputs, kernel, [1,strides,strides,1], padding=pad, data_format='NHWC')
             conv_bias = tf.nn.bias_add(conv, bias)
             norm = tf.contrib.layers.batch_norm(conv_bias, 0.9, epsilon=1e-5, activation_fn = tf.nn.relu, is_training = self.training)
@@ -534,22 +586,22 @@ class CPM():
                 return net
             else:
                 #   VGG based
-                net = self._conv_bn_relu(inputs, 64, 3, 1, 'SAME', 'conv1_1', use_loaded=True)
-                net = self._conv_bn_relu(net, 64, 3, 1, 'SAME', 'conv1_2', use_loaded=True)
+                net = self._conv_bn_relu(inputs, 64, 3, 1, 'SAME', 'conv1_1', use_loaded=True, lock=True)
+                net = self._conv_bn_relu(net, 64, 3, 1, 'SAME', 'conv1_2', use_loaded=True, lock=True)
                 net = tf.contrib.layers.max_pool2d(net, [2,2], [2,2], padding='SAME', scope='pool1')
                 #   down scale by 2
-                net = self._conv_bn_relu(net, 128, 3, 1, 'SAME', 'conv2_1', use_loaded=True)
-                net = self._conv_bn_relu(net, 128, 3, 1, 'SAME', 'conv2_2', use_loaded=True)
+                net = self._conv_bn_relu(net, 128, 3, 1, 'SAME', 'conv2_1', use_loaded=True, lock=True)
+                net = self._conv_bn_relu(net, 128, 3, 1, 'SAME', 'conv2_2', use_loaded=True, lock=True)
                 net = tf.contrib.layers.max_pool2d(net, [2,2], [2,2], padding='SAME', scope='pool2')
                 #   down scale by 2
-                net = self._conv_bn_relu(net, 256, 3, 1, 'SAME', 'conv3_1', use_loaded=True)
-                net = self._conv_bn_relu(net, 256, 3, 1, 'SAME', 'conv3_2', use_loaded=True)
-                net = self._conv_bn_relu(net, 256, 3, 1, 'SAME', 'conv3_3', use_loaded=True)
-                net = self._conv_bn_relu(net, 256, 3, 1, 'SAME', 'conv3_4', use_loaded=True)
+                net = self._conv_bn_relu(net, 256, 3, 1, 'SAME', 'conv3_1', use_loaded=True, lock=True)
+                net = self._conv_bn_relu(net, 256, 3, 1, 'SAME', 'conv3_2', use_loaded=True, lock=True)
+                net = self._conv_bn_relu(net, 256, 3, 1, 'SAME', 'conv3_3', use_loaded=True, lock=True)
+                net = self._conv_bn_relu(net, 256, 3, 1, 'SAME', 'conv3_4', use_loaded=True, lock=True)
                 net = tf.contrib.layers.max_pool2d(net, [2,2], [2,2], padding='SAME', scope='pool3')
                 #   down scale by 2
-                net = self._conv_bn_relu(net, 512, 3, 1, 'SAME', 'conv4_1', use_loaded=True)
-                net = self._conv_bn_relu(net, 512, 3, 1, 'SAME', 'conv4_2', use_loaded=True)
+                net = self._conv_bn_relu(net, 512, 3, 1, 'SAME', 'conv4_1', use_loaded=True, lock=True)
+                net = self._conv_bn_relu(net, 512, 3, 1, 'SAME', 'conv4_2', use_loaded=True, lock=True)
                 return net
 
     def _cpm_stage(self, feat_map, stage_num, last_stage = None):

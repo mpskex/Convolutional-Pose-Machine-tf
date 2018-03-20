@@ -29,3 +29,6 @@ data/
 
 #   Ignore Pretrained model
 model/
+
+#   Ignore test images
+test.*

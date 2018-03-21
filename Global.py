@@ -4,7 +4,7 @@
 IMG_ROOT = "/var/data/Dataset/images"
 
 INPUT_SIZE = 368
-base_lr = 4e-4
+base_lr = 8e-5
 epoch = 30
 batch_size = 16
 

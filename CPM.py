@@ -90,7 +90,7 @@ class CPM():
         #   step learning rate policy
         self.global_step = tf.Variable(0, trainable=False)
         self.learning_rate = tf.train.exponential_decay(base_lr,
-            self.global_step, 10000, 0.333,
+            self.global_step, 10*self.epoch*self.epoch_size, 0.333,
             staircase=True)
 
         #   Inside Variable
@@ -111,14 +111,12 @@ class CPM():
         self.load_pretrained = load_pretrained
         if pretrained_model is not None:
             self.pretrained_model = np.load(pretrained_model, encoding='latin1').item()
+            print("[*]\tnumpy file loaded!")
         else:
             self.pretrained_model = None
+
         #   dictionary of network parameters
         self.var_dict = {}
-
-        #   predict mode
-        self.predict = predict
-
 
     def __build_ph(self):
         """ Building Placeholder in tensorflow session
@@ -184,7 +182,7 @@ class CPM():
         assert self.img!=None and self.gtmap!=None
         #   the net
         self.output = self.net(self.img)
-        if not self.predict:
+        if self.training:
             #   train op
             with tf.name_scope('train'):
                 self.__build_train_op()
@@ -195,7 +193,7 @@ class CPM():
         #   initialize all variables
         self.sess.run(tf.global_variables_initializer())
         self.saver = tf.train.Saver()
-        if not self.predict:
+        if self.training:
             #   merge all summary
             self.summ_image = tf.summary.merge(self.summ_image_list)
             self.summ_scalar = tf.summary.merge(self.summ_scalar_list)
@@ -207,15 +205,16 @@ class CPM():
     def save_npy(self, save_path=None):
         """ Save the parameters
         :param save_path:       path to save
-        :return:                int - 0 for success
+        :return:
         """
         if save_path == None:
             save_path = self.log_dir + 'model.npy'
         data_dict = {}
-        for (name, idx), var in self.var_dict:
+        for (name, idx), var in self.var_dict.items():
             var_out = self.sess.run(var)
             if name not in data_dict:
                 data_dict[name] = {}
+            #print("[*]\tCreating dict for layer ", name, "-", str(idx))
             data_dict[name][idx] = var_out
         np.save(save_path, data_dict)
         print("[*]\tfile saved to", save_path)
@@ -254,8 +253,7 @@ class CPM():
                     self.sess.run(step, feed_dict={self.img: _train_batch[0],
                         self.gtmap:_train_batch[1],
                         self.weight:_train_batch[2]})
-                #   doing save numpy params
-                self.save_npy()
+
                 #   summaries
                 if _iter_count % 10 == 0:
                     _test_batch = next(self.valid_gen)
@@ -298,6 +296,8 @@ class CPM():
                 _iter_count += 1
                 self.writer.flush()
                 del _train_batch
+            #   doing save numpy params
+            self.save_npy()
             _epoch_count += 1
             #   save model every epoch
             if self.log_dir is not None:
@@ -417,7 +417,7 @@ class CPM():
 
     #   ======= Net Component ========
 
-    def _conv(self, inputs, filters, kernel_size = 1, strides = 1, pad='VALID', name='conv', use_loaded=False):
+    def _conv(self, inputs, filters, kernel_size = 1, strides = 1, pad='VALID', name='conv', use_loaded=False, lock=False):
         """ Spatial Convolution (CONV2D)
         Args:
             inputs			: Input Tensor (Data Type : NHWC)
@@ -426,27 +426,35 @@ class CPM():
             strides		: Stride
             pad				: Padding Type (VALID/SAME) # DO NOT USE 'SAME' NETWORK BUILT FOR VALID
             name			: Name of the block
+            use_loaded      : Use related name to find weight and bias
+            lock            : Lock the layer so the parameter won't be optimized
         Returns:
             conv			: Output Tensor (Convolved Input)
         """
         with tf.variable_scope(name):
             if use_loaded:
                 if self.pretrained_model is not None:
-                    if self.predict:
+                    if not self.training:
+                        #   TODO:   Assertion
                         kernel = tf.constant(self.pretrained_model[name][0], name='weights')
                         bias = tf.constant(self.pretrained_model[name][1], name='bias')
+                        print("[!]\tLayer restored! name of ", name)
                     else:
-                        kernel = tf.Variable(self.pretrained_model[name][0], name='weights')
-                        bias = tf.Variable(self.pretrained_model[name][1], name='bias')
+                        kernel = tf.Variable(self.pretrained_model[name][0], name='weights', trainable=not lock)
+                        bias = tf.Variable(self.pretrained_model[name][1], name='bias', trainable=not lock)
+                        if lock:
+                            print("[!]\tLocked ", name, " parameters")
                 else:
                     raise ValueError
             else:
                 # Kernel for convolution, Xavier Initialisation
                 kernel = tf.Variable(tf.contrib.layers.xavier_initializer(uniform=False)([kernel_size,kernel_size, inputs.get_shape().as_list()[3], filters]), name= 'weights')
                 bias = tf.Variable(tf.zeros([filters]), name='bias')
+
             #   save kernel and bias
             self.var_dict[(name,0)] = kernel
             self.var_dict[(name,1)] = bias
+
             conv = tf.nn.conv2d(inputs, kernel, [1,strides,strides,1], padding=pad, data_format='NHWC')
             conv_bias = tf.nn.bias_add(conv, bias)
             if self.w_summary:
@@ -465,27 +473,33 @@ class CPM():
             pad				: Padding Type (VALID/SAME) # DO NOT USE 'SAME' NETWORK BUILT FOR VALID
             name			: Name of the block
             use_loaded      : Use related name to find weight and bias
+            lock            : Lock the layer so the parameter won't be optimized
         Returns:
             norm			: Output Tensor
         """
         with tf.variable_scope(name):
             if use_loaded:
                 if  self.pretrained_model is not None:
-                    if self.predict:
+                    if not self.training:
                         #   TODO:   Assertion
                         kernel = tf.constant(self.pretrained_model[name][0], name='weights')
                         bias = tf.constant(self.pretrained_model[name][1], name='bias')
+                        print("[!]\tLayer restored! name of ", name)
                     else:
                         kernel = tf.Variable(self.pretrained_model[name][0], name='weights', trainable=not lock)
                         bias = tf.Variable(self.pretrained_model[name][1], name='bias', trainable=not lock)
+                        if lock:
+                            print("[!]\tLocked ", name, " parameters")
                 else:
                     raise ValueError
             else:
                 kernel = tf.Variable(tf.contrib.layers.xavier_initializer(uniform=False)([kernel_size,kernel_size, inputs.get_shape().as_list()[3], filters]), name= 'weights')
                 bias = tf.Variable(tf.zeros([filters]), name='bias')
+
             #   save kernel and bias
-            self.var_dict[(name,0)] = kernel
-            self.var_dict[(name,1)] = bias
+            self.var_dict[(name, 0)] = kernel
+            self.var_dict[(name, 1)] = bias
+
             conv = tf.nn.conv2d(inputs, kernel, [1,strides,strides,1], padding=pad, data_format='NHWC')
             conv_bias = tf.nn.bias_add(conv, bias)
             norm = tf.contrib.layers.batch_norm(conv_bias, 0.9, epsilon=1e-5, activation_fn = tf.nn.relu, is_training = self.training)
@@ -614,22 +628,22 @@ class CPM():
         """
         with tf.variable_scope('CPM_stage'+str(stage_num)):
             if stage_num == 1:
-                net = self._conv_bn_relu(feat_map, 256, 3, 1, 'SAME', 'conv4_3_CPM', use_loaded=self.load_pretrained)
-                net = self._conv_bn_relu(net, 256, 3, 1, 'SAME', 'conv4_4_CPM', use_loaded=self.load_pretrained)
-                net = self._conv_bn_relu(net, 256, 3, 1, 'SAME', 'conv4_5_CPM', use_loaded=self.load_pretrained)
-                net = self._conv_bn_relu(net, 256, 3, 1, 'SAME', 'conv4_6_CPM', use_loaded=self.load_pretrained)
-                net = self._conv_bn_relu(net, 128, 3, 1, 'SAME', 'conv4_7_CPM', use_loaded=self.load_pretrained)
-                net = self._conv_bn_relu(net, 512, 1, 1, 'SAME', 'conv5_1_CPM', use_loaded=self.load_pretrained)
-                net = self._conv(net, self.joint_num+1, 1, 1, 'SAME', 'conv5_2_CPM', use_loaded=self.load_pretrained)
+                net = self._conv_bn_relu(feat_map, 256, 3, 1, 'SAME', 'conv4_3_CPM', use_loaded=self.load_pretrained, lock=not self.training)
+                net = self._conv_bn_relu(net, 256, 3, 1, 'SAME', 'conv4_4_CPM', use_loaded=self.load_pretrained, lock=not self.training)
+                net = self._conv_bn_relu(net, 256, 3, 1, 'SAME', 'conv4_5_CPM', use_loaded=self.load_pretrained, lock=not self.training)
+                net = self._conv_bn_relu(net, 256, 3, 1, 'SAME', 'conv4_6_CPM', use_loaded=self.load_pretrained, lock=not self.training)
+                net = self._conv_bn_relu(net, 128, 3, 1, 'SAME', 'conv4_7_CPM', use_loaded=self.load_pretrained, lock=not self.training)
+                net = self._conv_bn_relu(net, 512, 1, 1, 'SAME', 'conv5_1_CPM', use_loaded=self.load_pretrained, lock=not self.training)
+                net = self._conv(net, self.joint_num+1, 1, 1, 'SAME', 'conv5_2_CPM', use_loaded=self.load_pretrained, lock=not self.training)
                 return net
             elif stage_num > 1:
                 net = tf.concat([feat_map, last_stage], 3)
-                net = self._conv_bn_relu(net, 128, 7, 1, 'SAME', 'Mconv1_stage'+str(stage_num), use_loaded=self.load_pretrained)
-                net = self._conv_bn_relu(net, 128, 7, 1, 'SAME', 'Mconv2_stage'+str(stage_num), use_loaded=self.load_pretrained)
-                net = self._conv_bn_relu(net, 128, 7, 1, 'SAME', 'Mconv3_stage'+str(stage_num), use_loaded=self.load_pretrained)
-                net = self._conv_bn_relu(net, 128, 7, 1, 'SAME', 'Mconv4_stage'+str(stage_num), use_loaded=self.load_pretrained)
-                net = self._conv_bn_relu(net, 128, 7, 1, 'SAME', 'Mconv5_stage'+str(stage_num), use_loaded=self.load_pretrained)
-                net = self._conv_bn_relu(net, 128, 1, 1, 'SAME', 'Mconv6_stage'+str(stage_num), use_loaded=self.load_pretrained)
-                net = self._conv(net, self.joint_num+1, 1, 1, 'SAME', 'Mconv7_stage'+str(stage_num), use_loaded=self.load_pretrained)
+                net = self._conv_bn_relu(net, 128, 7, 1, 'SAME', 'Mconv1_stage'+str(stage_num), use_loaded=self.load_pretrained, lock=not self.training)
+                net = self._conv_bn_relu(net, 128, 7, 1, 'SAME', 'Mconv2_stage'+str(stage_num), use_loaded=self.load_pretrained, lock=not self.training)
+                net = self._conv_bn_relu(net, 128, 7, 1, 'SAME', 'Mconv3_stage'+str(stage_num), use_loaded=self.load_pretrained, lock=not self.training)
+                net = self._conv_bn_relu(net, 128, 7, 1, 'SAME', 'Mconv4_stage'+str(stage_num), use_loaded=self.load_pretrained, lock=not self.training)
+                net = self._conv_bn_relu(net, 128, 7, 1, 'SAME', 'Mconv5_stage'+str(stage_num), use_loaded=self.load_pretrained, lock=not self.training)
+                net = self._conv_bn_relu(net, 128, 1, 1, 'SAME', 'Mconv6_stage'+str(stage_num), use_loaded=self.load_pretrained, lock=not self.training)
+                net = self._conv(net, self.joint_num+1, 1, 1, 'SAME', 'Mconv7_stage'+str(stage_num), use_loaded=self.load_pretrained, lock=not self.training)
                 return net
 

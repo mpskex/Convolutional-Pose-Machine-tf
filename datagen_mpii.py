@@ -517,23 +517,20 @@ class DataGenerator(object):
             max_l: Maximum Size of Input Image
         """
         if sample != None:
-            try:
-                joints = self.data_dict[sample]['joints']
-                box = self.data_dict[sample]['box']
-                w = self.data_dict[sample]['weights']
-                img = self.open_img(sample)
-                padd, cbox = self._crop_data(img.shape[0], img.shape[1], box, joints, boxp=0.2)
-                new_j = self._relative_joints(cbox, padd, joints, to_size=self.in_size)
-                joint_full = np.copy(joints)
-                max_l = max(cbox[2], cbox[3])
-                joint_full = joint_full + [padd[1][0], padd[0][0]]
-                joint_full = joint_full - [cbox[0] - max_l // 2, cbox[1] - max_l // 2]
-                img = self._crop_img(img, padd, cbox)
-                img = img.astype(np.uint8)
-                img = scm.imresize(img, (self.in_size, self.in_size))
-                return img, new_j, w, joint_full, max_l
-            except:
-                return False
+            joints = self.data_dict[sample]['joints']
+            box = self.data_dict[sample]['box']
+            w = self.data_dict[sample]['weights']
+            img = self.open_img(sample)
+            padd, cbox = self._crop_data(img.shape[0], img.shape[1], box, joints, boxp=0.2)
+            new_j = self._relative_joints(cbox, padd, joints, to_size=self.in_size)
+            joint_full = np.copy(joints)
+            max_l = max(cbox[2], cbox[3])
+            joint_full = joint_full + [padd[1][0], padd[0][0]]
+            joint_full = joint_full - [cbox[0] - max_l // 2, cbox[1] - max_l // 2]
+            img = self._crop_img(img, padd, cbox)
+            img = img.astype(np.uint8)
+            img = scm.imresize(img, (self.in_size, self.in_size))
+            return img, new_j, w, joint_full, max_l
         else:
             print('Specify a sample name')
 

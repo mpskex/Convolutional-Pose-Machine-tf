@@ -28,7 +28,7 @@ data/
 .idea/
 
 #   Ignore Pretrained model
-model/
+*.ckpt*
 
 #   Ignore test images
 test.*

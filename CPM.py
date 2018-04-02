@@ -57,10 +57,10 @@ class CPM(PoseNet.PoseNet):
 
         #   model log dir control
         if log_dir is not None:
-            self.writer = tf.summary.FileWriter(log_dir)
             self.log_dir = log_dir
         else:
             self.log_dir = 'log/'
+        self.writer = tf.summary.FileWriter(self.log_dir)
 
         #   model device control
         self.cpu = '/cpu:0'
@@ -122,7 +122,6 @@ class CPM(PoseNet.PoseNet):
 
         #   dictionary of network parameters
         self.var_dict = {}
-
 
 
     def net(self, image, name='CPM'):

@@ -11,7 +11,7 @@ import cv2
 import numpy as np
 import Global
 import CPM
-from skimage import transform
+from skimage import transform, io
 
 
 joint_num = 16
@@ -67,6 +67,7 @@ def joints_pred_numpy(hm, img, coord='img', thresh=0.2):
     """
     assert len(hm.shape) == 4 and len(img.shape) == 4
     joints = -1 * np.ones(shape=(hm.shape[0], joint_num, 2))
+    weight = np.zeros(shape=(hm.shape[0], joint_num))
     for n in range(hm.shape[0]):
         for i in range(joint_num):
             index = np.unravel_index(hm[n, :, :, i].argmax(), hm.shape[1:3])
@@ -75,71 +76,104 @@ def joints_pred_numpy(hm, img, coord='img', thresh=0.2):
                     joints[n, i] = np.array(index)
                 elif coord == 'img':
                     joints[n, i] = np.array(index) * (img.shape[1], img.shape[2]) / hm.shape[1:3]
-    return joints
+                weight[n, i] = 1
+    return joints, weight
 
-def predict(img_list, in_size, model_path, thresh=0.05, debug=False):
+
+def predict(img_list, model_path=None, thresh=0.05, is_name=False, cpu_only=True, model=None, id=0, debug=False):
     """ predict API
+    You can input any size of image in this function. and the joint result is remaped to 
+    the origin image according to each image's scale
+    Just feel free to scale up n down :P
+
+    Just be aware of the `is_name` param: this is to determine if
     
     :param img_list:    list of img (numpy array) !EVEN ONE PIC VAL ALSO NEED INPUT AS LIST!
-    :param in_size:     in_size must be declare (WHC) 3 dim tuple
     :param model_path:  path to load the model
-    :param thresh:  threshold value (ignore some small peak)
+    :param thresh:      threshold value (ignore some small peak)
+    :param is_name:     define whether the input is name_list or numpy_list
+    :param cpu_only:    CPU only mode or GPU accelerate mode
+    :param model:       preload model to do the predict
     :return :
     """
     #   Assertion to check input format
     assert img_list != None and len(img_list) >= 1
+    if model == None and model_path == None:
+        print('[!]\tError!\tA mo(len(_img_list), pred_map.shape[-1]-1, 2)del or a model path must be given!')
+        raise ValueError
+    if is_name:
+        assert type(img_list[0]) == str
+    if is_name == True:
+        _img_list = []
+    else:
+        _img_list = img_list
     input_list = []
     for idx in range(len(img_list)):
-        assert img_list[idx].shape == in_size
-        input_list.append(cv2.resize(img_list[idx], (368, 368)))
+        try:
+            if is_name == True:
+                t_img = io.imread(img_list[idx])
+                if t_img is None:
+                    raise IOError
+                _img_list.append(t_img)
+            else:
+                t_img = _img_list[idx]
+            if debug == True:
+                print('[*]\tt_img have shape of ', t_img.shape)
+            input_list.append(cv2.resize(t_img, (368, 368)))
+        except:
+            print("[!]\tError!\tFailed to load image of index ", idx)
     #   convert list to numpy array
     _input = np.array(input_list)
     if debug:
         print('[*]\tInput have shape of ', _input.shape)
     
-    '''
     #   using restore session
-    model = CPM.CPM(pretrained_model=None,
-                training=False)
-    model.BuildModel()
-    model.restore_sess(model_path)
+    if model == None:
+        model = CPM.CPM(pretrained_model=None,
+                    cpu_only=cpu_only,
+                    training=False)
+        model.BuildModel()
+    if model_path is not None:
+        model.restore_sess(model_path)
 
     #   get the last stage's result
     pred_map = model.sess.run(model.output, feed_dict={model.img: _input / 255.0})[:, -1]
     if debug:
         np.save('pred.npy', pred_map)
-    #   re-project heatmap to origin size
-    '''
-    pred_map = np.load('pred.npy')
-    r_pred_map = resize_to_imgsz(pred_map, _input)
 
-    if debug:
-        print("[*]\toutput map have shape of", r_pred_map.shape)
-    #   predict joints pos
-    j = joints_pred_numpy(r_pred_map, _input, thresh=0.05)
-    if debug:
-        #   visualize the joints with origin image
-        ret_img = joints_plot_image(j, _input, radius=10, thickness=5)
-        v_pred_map = np.sum(r_pred_map, axis=(3))
-        print("[*]\tpred visualized map have shape of ", v_pred_map)
-        for n in range(v_pred_map.shape[0]):
-            cv2.imwrite('vis.'+str(n)+'.jpg', ret_img[n])
-            cv2.imwrite('pred.'+str(n)+'.jpg', v_pred_map[n] * 255)
-    return j
+    j = -1 * np.ones((len(_img_list), pred_map.shape[-1]-1, 2))
+    w = np.zeros((len(_img_list), pred_map.shape[-1]-1))
+    for idx in range(len(_img_list)):
+        #   re-project heatmap to origin size
+
+        if debug:
+            print("[*]\tpred map have shape of", pred_map.shape)
+            print("[*]\timg have shape of", _img_list[idx].shape)
+            
+        r_pred_map = resize_to_imgsz(np.expand_dims(pred_map[idx],0), np.expand_dims(_img_list[idx],0))
+
+        if debug:
+            print("[*]\tresized pred map have shape of", r_pred_map.shape)
+        #   predict joints pos
+
+        j[idx], w[idx] = joints_pred_numpy(r_pred_map, np.expand_dims(_img_list[idx],0), thresh=thresh)
+        if debug:
+            #   visualize the joints with origin image
+            ret_img = joints_plot_image(np.expand_dims(j[idx], 0), np.expand_dims(_img_list[idx],0), radius=10, thickness=5)
+            v_pred_map = np.sum(r_pred_map, axis=(3))
+            print("[*]\tpred visualized map have shape of ", v_pred_map.shape)
+            
+            io.imsave('vis.'+str(id)+'-'+str(idx)+'.jpg', np.sum(ret_img, axis=0))
+            io.imsave('pred.'+str(id)+'-'+str(idx)+'.jpg', (np.sum(v_pred_map, axis=0)*255).astype(np.uint8))
+    return j, w
+    
 
 
 if __name__=='__main__':
     """ Demo of Using the model API
     """
     img_names = ['test.1.png','test.2.png','test.3.png', 'test.4.png']
-    img_list = []
-    for n in img_names:
-        try:
-            t_img = cv2.imread(n)
-            img_list.append(cv2.resize(t_img, (368, 368)))
-        except:
-            print("[!]\tError!\tFailed to load ", n)
     #   input must be greater than one
-    assert len(img_list) >= 1
-    j = predict(img_list, (368, 368, 3), 'model/model.ckpt-98', debug=True)
-    print j
+    assert len(img_names) >= 1
+    j = predict(img_names, 'model/model.ckpt-99', debug=True, is_name=True)
+    print(j)

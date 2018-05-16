@@ -14,10 +14,6 @@ import CPM
 from skimage import transform, io
 
 
-joint_num = 16
-in_size = 368
-out_size = 46
-
 def resize_to_imgsz(hm, img):
     """ Create Tensor for joint position prediction
 
@@ -32,7 +28,7 @@ def resize_to_imgsz(hm, img):
             ret_map[n,:,:,c] = transform.resize(hm[n,:,:,c], img.shape[1:3])
     return ret_map
 
-def joints_plot_image(joints, img, radius=3, thickness=2):
+def joints_name_image(joints, img, letters, radius=3, thickness=2):
     """ Plot the joints on image
 
     :param joints:      (np.array)Assuming input of shape (joint_num, dim)
@@ -42,6 +38,7 @@ def joints_plot_image(joints, img, radius=3, thickness=2):
     :return:        RGB image
     """
     assert len(joints.shape)==3 and len(img.shape)==4
+    assert joints.shape[0] == img.shape[0]
     colors = [(241,242,224), (196,203,128), (136,150,0), (64,77,0), 
             (201,230,200), (132,199,129), (71,160,67), (32,94,27),
             (130,224,255), (7,193,255), (0,160,255), (0,111,255),
@@ -52,7 +49,30 @@ def joints_plot_image(joints, img, radius=3, thickness=2):
     ret = np.zeros(img.shape, np.uint8)
     for num in range(joints.shape[0]):
         for jnum in range(joints.shape[1]):
-            print(tuple(joints[num, jnum].astype(int)))
+            ret[num] = cv2.putText(img[num], letters[jnum],  (int(joints[num,jnum,1]),  int(joints[num,jnum,0])), cv2.FONT_HERSHEY_SIMPLEX, .6, color=colors[jnum], thickness=2)
+    return ret
+
+def joints_plot_image(joints, img, radius=3, thickness=2):
+    """ Plot the joints on image
+
+    :param joints:      (np.array)Assuming input of shape (joint_num, dim)
+    :param img:         (image)Assuming
+    :param radius:      (int)Radius
+    :param thickness:   (int)Thickness
+    :return:        RGB image
+    """
+    assert len(joints.shape)==3 and len(img.shape)==4
+    assert joints.shape[0] == img.shape[0]
+    colors = [(241,242,224), (196,203,128), (136,150,0), (64,77,0), 
+            (201,230,200), (132,199,129), (71,160,67), (32,94,27),
+            (130,224,255), (7,193,255), (0,160,255), (0,111,255),
+            (220,216,207), (174,164,144), (139,125,96), (100,90,69),
+            (252,229,179), (247,195,79), (229,155,3), (155,87,1),
+            (231,190,225), (200,104,186), (176,39,156), (162,31,123),
+            (210,205,255), (115,115,229), (80,83,239), (40,40,198)]
+    ret = np.zeros(img.shape, np.uint8)
+    for num in range(joints.shape[0]):
+        for jnum in range(joints.shape[1]):
             ret[num] = cv2.circle(img[num], (int(joints[num,jnum,1]), int(joints[num,jnum,0])), radius=radius, color=colors[jnum], thickness=thickness)
     return ret
 
@@ -66,10 +86,10 @@ def joints_pred_numpy(hm, img, coord='img', thresh=0.2):
     :return:
     """
     assert len(hm.shape) == 4 and len(img.shape) == 4
-    joints = -1 * np.ones(shape=(hm.shape[0], joint_num, 2))
-    weight = np.zeros(shape=(hm.shape[0], joint_num))
+    joints = -1 * np.ones(shape=(hm.shape[0], hm.shape[3], 2))
+    weight = np.zeros(shape=(hm.shape[0], hm.shape[3]))
     for n in range(hm.shape[0]):
-        for i in range(joint_num):
+        for i in range(hm.shape[3]):
             index = np.unravel_index(hm[n, :, :, i].argmax(), hm.shape[1:3])
             if hm[n, index[0], index[1], i] > thresh:
                 if coord == 'hm':
@@ -141,8 +161,8 @@ def predict(img_list, model_path=None, thresh=0.05, is_name=False, cpu_only=True
     if debug:
         np.save('pred.npy', pred_map)
 
-    j = -1 * np.ones((len(_img_list), pred_map.shape[-1]-1, 2))
-    w = np.zeros((len(_img_list), pred_map.shape[-1]-1))
+    j = -1 * np.ones((len(_img_list), pred_map.shape[-1], 2))
+    w = np.zeros((len(_img_list), pred_map.shape[-1]))
     for idx in range(len(_img_list)):
         #   re-project heatmap to origin size
 
@@ -172,7 +192,10 @@ def predict(img_list, model_path=None, thresh=0.05, is_name=False, cpu_only=True
 if __name__=='__main__':
     """ Demo of Using the model API
     """
-    img_names = ['test.1.png','test.2.png','test.3.png', 'test.4.png']
+    img_names = ['000061164.jpg', '000078951.jpg', '000094304.jpg', '000099899.jpg',
+                '000065339.jpg', '000085370.jpg', '000094342.jpg', '000109154.jpg',
+                '000071686.jpg', '000090584.jpg', '000099186.jpg','000111209.jpg'
+                ]
     #   input must be greater than one
     assert len(img_names) >= 1
     j = predict(img_names, 'model/model.ckpt-99', debug=True, is_name=True)

@@ -91,6 +91,8 @@ class CPM(PoseNet.PoseNet):
         self.epoch = epoch
         self.epoch_size = epoch_size
         self.dataset = dataset
+        #   r_mask = mask_level + (1 - mask_level) * mask
+        self.mask_level = 0.2
 
         #   step learning rate policy
         self.global_step = tf.Variable(0, trainable=False)
@@ -141,7 +143,7 @@ class CPM(PoseNet.PoseNet):
                 stage[t-1] = self._cpm_stage(fmap, t, stage[t-2])
             #   RETURN SIZE:
             #       batch_size * stage_num * in_size/8 * in_size/8 * joint_num
-            return tf.nn.sigmoid(tf.stack(stage, axis= 1 , name= 'stack_output'),name = 'final_output')
+            return tf.nn.sigmoid(tf.stack(stage, axis=1 , name= 'stack_output'),name = 'final_output')
 
     def _feature_extractor(self, inputs, net_type='VGG', name='Feature_Extractor'):
         """ Feature Extractor

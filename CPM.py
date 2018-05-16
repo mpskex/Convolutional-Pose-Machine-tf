@@ -116,14 +116,14 @@ class CPM(PoseNet.PoseNet):
         self.load_pretrained = load_pretrained
         if pretrained_model is not None:
             self.pretrained_model = np.load(pretrained_model, encoding='latin1').item()
-            print("[*]\tnumpy file loaded!")
+            print("[*]\tVGG19 params loaded!")
         else:
             self.pretrained_model = None
 
         #   dictionary of network parameters
         self.var_dict = {}
 
-
+   
     def net(self, image, name='CPM'):
         """ CPM Net Structure
         Args:

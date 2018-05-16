@@ -192,10 +192,10 @@ class DataGenerator(object):
         for i in range(batch_size):
             if set == 'train':
                 list_file.append(random.choice(self.train_set))
-            elif set == 'valid':
+            elif set == 'val':
                 list_file.append(random.choice(self.valid_set))
             else:
-                print('Set must be : train/valid')
+                print('Set must be : train/val')
                 break
         return list_file
 
@@ -379,7 +379,7 @@ class DataGenerator(object):
                 try:
                     if sample_set == 'train':
                         name = random.choice(self.train_set)
-                    elif sample_set == 'valid':
+                    elif sample_set == 'val':
                         name = random.choice(self.valid_set)
                     joints = self.data_dict[name]['joints']
                     box = self.data_dict[name]['box']
@@ -411,7 +411,7 @@ class DataGenerator(object):
             batchSize 	: Number of image per batch 
             stacks 	 	: Stacks in HG model
             norm 	 	 	: (bool) True to normalize the batch
-            sample 	 	: 'train'/'valid' Default: 'train'
+            sample 	 	: 'train'/'val' Default: 'train'
         """
         return self._aux_generator(batch_size=batchSize, stacks=stacks, normalize=norm, sample_set=sample)
 
@@ -535,10 +535,13 @@ class DataGenerator(object):
             print('Specify a sample name')
 
 if __name__ == '__main__':
-    #   module testing code
+    # module testing code
     INPUT_SIZE = 368
-    IMG_ROOT = "/Documents/mpii"
-    training_txt_file = "dataset.txt"
-    joint_list = ['r_anckle', 'r_knee', 'r_hip', 'l_hip', 'l_knee', 'l_anckle', 'pelvis', 'thorax', 'neck', 'head',
-                  'r_wrist', 'r_elbow', 'r_shoulder', 'l_sho    ulder', 'l_elbow', 'l_wrist']
-    gen = DataGenerator(joint_list, IMG_ROOT, training_txt_file, remove_joints=None, in_size=INPUT_SIZE)
+    IMG_ROOT = "/Users/mpsk/Documents/COCO2017/val2017"
+    COCO_anno_file = "/Users/mpsk/Documents/COCO2017/annotations/person_keypoints_val2017.json"
+    gen = DataGenerator(img_dir=IMG_ROOT,training_txt_file='dataset.txt', in_size=INPUT_SIZE)
+    gen.generateSet(rand=True)
+    img, gtmap, w = next(gen.generator())
+    io.imsave('1.jpg', img[0])
+    io.imsave('p.jpg', (gtmap[0,0,:,:,0]*255).astype(np.uint8))
+    print w

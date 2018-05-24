@@ -161,8 +161,8 @@ def predict(img_list, model_path=None, thresh=0.05, is_name=False, cpu_only=True
     if debug:
         np.save('pred.npy', pred_map)
 
-    j = -1 * np.ones((len(_img_list), pred_map.shape[-1], 2))
-    w = np.zeros((len(_img_list), pred_map.shape[-1]))
+    j = -1 * np.ones((len(_img_list), pred_map.shape[-1]-1, 2))
+    w = np.zeros((len(_img_list), pred_map.shape[-1]-1))
     for idx in range(len(_img_list)):
         #   re-project heatmap to origin size
 

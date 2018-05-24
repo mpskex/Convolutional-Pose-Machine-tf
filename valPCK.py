@@ -96,14 +96,15 @@ def compute_distance(model, dataset, metric='PCKh', debug=False):
         j_gt = np.array(j_list)
 
         #   estimate by network
-        j_dt,_ = predict.predict(im_list, model=model, thresh=0.0)
+        j_dt,_ = predict.predict(im_list, model=model, thresh=0.0, debug=True)
         w = np.transpose(np.hstack((np.expand_dims(w,1), np.expand_dims(w,1))), axes=[0,2,1])
+        assert j_dt.shape == j_gt.shape
 
-        for n in range(len(Global.joint_list)):
+        for n in range(j_dt.shape[0]):
             err[_iter*paral+n] = np.linalg.norm(w[n]*(j_gt[n,:,:]-j_dt[n,:,-1::-1]),axis=1) / np.linalg.norm(j_gt[n,normJ_a,:]-j_gt[n,normJ_b,:], axis=0)
         print "[*]\tTemp Error is ", np.average(err[_iter*paral:_iter*paral+paral], axis=0)
         if debug:
-            break
+            return err
 
     aver_err = np.average(err)
     print "[*]\tAverage PCKh Normalised distance is ", aver_err
@@ -123,5 +124,5 @@ if __name__ == '__main__':
     model.BuildModel()
     model.restore_sess('model/model.ckpt-99')
 
-    dist = compute_distance(model, dataset, metric='PCKh', debug=True)
+    dist = compute_distance(model, dataset, metric='PCKh')
     visualize_accuracy(dist, start=0.01, end=0.5, showlist=[0,1,4,5,10,11,14,15])

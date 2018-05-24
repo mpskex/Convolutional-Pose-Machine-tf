@@ -31,4 +31,4 @@ data/
 *.ckpt*
 
 #   Ignore test images
-test.*
+*.jpg

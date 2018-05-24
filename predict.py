@@ -157,12 +157,12 @@ def predict(img_list, model_path=None, thresh=0.05, is_name=False, cpu_only=True
         model.restore_sess(model_path)
 
     #   get the last stage's result
-    pred_map = model.sess.run(model.output, feed_dict={model.img: _input / 255.0})[:, -1]
+    pred_map = model.sess.run(model.output, feed_dict={model.img: _input / 255.0})[:, -1, :, :, :-1]
     if debug:
         np.save('pred.npy', pred_map)
 
-    j = -1 * np.ones((len(_img_list), pred_map.shape[-1]-1, 2))
-    w = np.zeros((len(_img_list), pred_map.shape[-1]-1))
+    j = -1 * np.ones((len(_img_list), pred_map.shape[-1], 2))
+    w = np.zeros((len(_img_list), pred_map.shape[-1]))
     for idx in range(len(_img_list)):
         #   re-project heatmap to origin size
 
@@ -192,10 +192,7 @@ def predict(img_list, model_path=None, thresh=0.05, is_name=False, cpu_only=True
 if __name__=='__main__':
     """ Demo of Using the model API
     """
-    img_names = ['000061164.jpg', '000078951.jpg', '000094304.jpg', '000099899.jpg',
-                '000065339.jpg', '000085370.jpg', '000094342.jpg', '000109154.jpg',
-                '000071686.jpg', '000090584.jpg', '000099186.jpg','000111209.jpg'
-                ]
+    img_names = ['test.jpg']
     #   input must be greater than one
     assert len(img_names) >= 1
     j = predict(img_names, 'model/model.ckpt-99', debug=True, is_name=True)

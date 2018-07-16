@@ -13,12 +13,12 @@ Please go to my [site](http://mpskex.wicp.net/models) to choose the Convolutiona
 And put the model in `model/` directory
 
 #   Demo & Benchmark Results
-![Demo](https://img-blog.csdn.net/20180402211711524?watermark/2/text/aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L21wc2swNw==/font/5a6L5L2T/fontsize/400/fill/I0JBQkFCMA==/dissolve/70)
-![PCKh Benchmark Result](https://img-blog.csdn.net/2018040221121922?watermark/2/text/aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L21wc2swNw==/font/5a6L5L2T/fontsize/400/fill/I0JBQkFCMA==/dissolve/70)
+![Demo](https://raw.githubusercontent.com/mpskex/Convolutional-Pose-Machine-tf/master/demo/demo.jpg)
+![PCKh Benchmark Result](https://raw.githubusercontent.com/mpskex/Convolutional-Pose-Machine-tf/master/demo/PCKh.png)
 ##  Live demo avaliable (2018-Jul)
 *   Live Camera Demo 
 *   Offline Video Processing Demo
-![Live Demo](https://img-blog.csdn.net/20180716112622138?watermark/2/text/aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L21wc2swNw==/font/5a6L5L2T/fontsize/400/fill/I0JBQkFCMA==/dissolve/70)
+![Live Demo](https://raw.githubusercontent.com/mpskex/Convolutional-Pose-Machine-tf/master/demo/live.gif)
 
 #   TODOs
 *   Still working in benchmark (Not in this project's workflow)

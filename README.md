@@ -13,9 +13,17 @@ Please go to my [site](http://mpskex.wicp.net/models) to choose the Convolutiona
 And put the model in `model/` directory
 
 #   Demo & Benchmark Results
+![50FPS@GTX960 RealTime DEMO](https://raw.githubusercontent.com/mpskex/Convolutional-Pose-Machine-tf/master/demo/demo.jpg)
+![PCKh Benchmark Result](https://raw.githubusercontent.com/mpskex/Convolutional-Pose-Machine-tf/master/demo/PCKh.png)
 ![Demo](https://raw.githubusercontent.com/mpskex/Convolutional-Pose-Machine-tf/master/demo/demo.jpg)
 
-![PCKh Benchmark Result](https://raw.githubusercontent.com/mpskex/Convolutional-Pose-Machine-tf/master/demo/PCKh.png)
+## Train & model update (2018-Nov)
+*   Mobile CPM is avaliable! 50FPS!! try it out!
+*   Parameters in Numpy is avaliable!
+*   Native Data Generator in Paralleled structures
+*   More Layers and Faster R-CNN Code in side (Find your gadget in repo)
+*   more functionality! like layers (Proposal Layers, Dispatch Layers, RoI Align Layer) and Regularization stuffs
+*   Pretrained model avaliable in days [here](http://mpskex.wicp.net/models)!
 
 ##  Live demo avaliable (2018-Jul)
 *   Live Camera Demo 
@@ -25,17 +33,6 @@ And put the model in `model/` directory
 
 #   TODOs
 *   Still working in benchmark (Not in this project's workflow)
-
-
-#   Files
-Filename|Usage
-:-------|:----
-predict.py|change the source file's image
-train.py|use this to launch a training process
-benchmark.py|live demo to test the model
-valPCK.py|PCK metric validation 
-CPM.py|NO USAGE PLEASE LEAVE INTACT
-datagen.py|NO USAGE PLEASE LEAVE INTACT
 
 ##  Credit
 ### Cited [Convolutional Pose Machine](https://arxiv.org/abs/1602.00134)

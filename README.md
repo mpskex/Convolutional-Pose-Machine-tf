@@ -13,7 +13,7 @@ Please go to my [site](http://mpskex.wicp.net/models) to choose the Convolutiona
 And put the model in `model/` directory
 
 #   Demo & Benchmark Results
-![50FPS@GTX960 RealTime DEMO](https://raw.githubusercontent.com/mpskex/Convolutional-Pose-Machine-tf/master/demo/demo.jpg)
+![50FPS@GTX960 RealTime DEMO](https://raw.githubusercontent.com/mpskex/Convolutional-Pose-Machine-tf/master/demo/demo.gif)
 ![PCKh Benchmark Result](https://raw.githubusercontent.com/mpskex/Convolutional-Pose-Machine-tf/master/demo/PCKh.png)
 ![Demo](https://raw.githubusercontent.com/mpskex/Convolutional-Pose-Machine-tf/master/demo/demo.jpg)
 

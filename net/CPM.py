@@ -260,7 +260,7 @@ class CPM(PoseNet.PoseNet):
             _epoch_count += 1
             #   save model every epoch
             if self.log_dir is not None:
-                self.saver.save(os.path.join(self.log_dir, "model.ckpt"), n)
+                self.saver.save(self.sess, os.path.join(self.log_dir, "model.ckpt"), n)
 
     def net(self, image, name='CPM', load_pretrained=False, lock=False):
         """ CPM Net Structure

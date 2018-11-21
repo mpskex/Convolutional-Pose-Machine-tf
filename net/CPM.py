@@ -235,8 +235,8 @@ class CPM(PoseNet.PoseNet):
                                                     feed_dict={self.img: _test_batch[0],
                                                                 self.joint_map_gt: _test_batch[1],
                                                                 self.joint_weight:_test_batch[2]})
-                    for n in [summ_scalar_out, summ_img_out, summ_acc_out, summ_hist_out]:
-                        self.writer.add_summary(n, _iter_count)
+                    for summ in [summ_scalar_out, summ_img_out, summ_acc_out, summ_hist_out]:
+                        self.writer.add_summary(summ, _iter_count)
                     print("epoch ", _epoch_count, " iter ", _iter_count, [jloss_out])
 
                 if _iter_count % 500 == 0:
@@ -259,7 +259,6 @@ class CPM(PoseNet.PoseNet):
             self.save_npy()
             _epoch_count += 1
             #   save model every epoch
-            #   Note:   This may crash in TF 1.10 (For convenient I just comment this line and use numpy file)
             if self.log_dir is not None:
                 self.saver.save(self.sess, os.path.join(self.log_dir, "model.ckpt"), n)
 
